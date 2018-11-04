@@ -1,0 +1,47 @@
+{
+  "name": "log-viewer",
+  "version": "0.1.0",
+  "main": "index.html",
+  "description": "Log Viewer",
+  "dependencies": {
+    "command-exists": "^1.2.8",
+    "lodash": "^4.17.11",
+    "react": "^16.6.0",
+    "react-dom": "^16.6.0",
+    "react-scripts": "2.1.1",
+    "shelljs": "^0.8.2",
+    "tmp": "0.0.33",
+    "webpack-cli": "^3.1.2",
+    "why-did-you-update": "^0.2.0"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build && cp package.json ./build",
+    "test-nw": "npm run build && nwjs ./build",
+    "build-nw": "npm run build && webpack --config webpack-starter.config.js",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": "react-app"
+  },
+  "browserslist": [
+    ">0.2%",
+    "not dead",
+    "not ie <= 11",
+    "not op_mini all"
+  ],
+  "window": {
+    "title": "Log Viewer",
+    "toolbar": false,
+    "frame": true,
+    "width": 1200,
+    "height": 700,
+    "position": "center",
+    "min_width": 600,
+    "min_height": 400
+  },
+  "webkit": {
+    "plugin": true
+  }
+}
