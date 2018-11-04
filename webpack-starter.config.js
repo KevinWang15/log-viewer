@@ -3,6 +3,10 @@ const shell = require("shelljs");
 
 module.exports = {
   target: "node",
+  node: {
+    __dirname: false,
+    __filename: false
+  },
   entry: {
     starter: ["./src/starter.js"]
   },

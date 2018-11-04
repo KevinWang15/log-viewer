@@ -40,5 +40,5 @@ new Promise(resolve => {
     });
   }
 }).then(fileName => {
-  childprocess.spawn("nwjs", [".", fileName]);
+  childprocess.spawn("nwjs", [__dirname, fileName]);
 });
