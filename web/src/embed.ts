@@ -30,7 +30,7 @@ const viewKey = params.get('viewKey');
 if (viewKey) api.setViewKey(viewKey);
 
 // ---- postMessage bridge -----------------------------------------------------
-// Two-way protocol with the host page, documented in docs/embedding.md.
+// Two-way protocol with the host page, documented in docs/embedding-ui.md.
 // The bridge is opt-in: it activates only when the embed URL carries an
 // `allowOrigin` parameter (comma-separated list of exact host origins).
 // Without it every incoming message is ignored and nothing is ever posted,

@@ -19,7 +19,7 @@ import { DEFAULTS, ScopedStreamToken } from './config';
 import type { LogSource } from './source-api';
 import { Store, StoreCapacityError } from './store';
 import { WsHub } from './ws-hub';
-import type { ModuleContext, ViewerModule } from './module';
+import type { AuthTarget, ModuleContext, ViewerModule } from './module';
 import { coreModule, ruleInfo } from './modules/core';
 import { filesModule } from './modules/files';
 import { streamsModule } from './modules/streams';
@@ -88,6 +88,15 @@ export interface LogViewer {
   readonly store: Store;
 }
 
+// The package version, read from package.json next to src/ or dist/.
+const PACKAGE_VERSION: string = (() => {
+  try {
+    return (JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'package.json'), 'utf8')) as { version?: string }).version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
+
 // Packaged UI (next to dist/ in the npm package), then the monorepo build.
 function defaultUiDir(): string | null {
   for (const dir of [path.resolve(__dirname, '..', 'ui'), path.resolve(__dirname, '..', '..', 'web', 'dist')]) {
@@ -155,7 +164,7 @@ export function createLogViewer(options: LogViewerOptions = {}): LogViewer {
   }
   router.use(express.json({ limit: maxPayloadBytes }));
 
-  const authContext = (req: Request, action: AuthAction, target?: { source?: LogSource; channel?: string }): AuthContext => ({
+  const authContext = (req: Request, action: AuthAction, target?: AuthTarget): AuthContext => ({
     action,
     transport: 'http',
     source: target?.source ? { id: target.source.id, kind: target.source.kind, name: target.source.name } : undefined,
@@ -252,7 +261,7 @@ export function createLogViewer(options: LogViewerOptions = {}): LogViewer {
     const streamCaps = streams?.capabilities?.() as { lifecycle: unknown; mutationAuth: string; limits: unknown } | undefined;
     res.json({
       service: 'log-viewer',
-      serviceVersion: options.version || '0.1.0',
+      serviceVersion: options.version || PACKAGE_VERSION,
       apiVersion: 'v1',
       // Top-level stream fields predate `modules` and are kept for clients.
       streamLifecycle: streamCaps?.lifecycle,

@@ -1,4 +1,4 @@
-// Browser e2e for the embed postMessage bridge (docs/embedding.md).
+// Browser e2e for the embed postMessage bridge (docs/embedding-ui.md).
 //
 // Self-contained: spawns the built server on an ephemeral port and a tiny
 // host page on another, then drives both with system Chrome. The host page

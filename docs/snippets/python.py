@@ -7,7 +7,7 @@ stream from Python (stdlib only, no dependencies).
     python3 python.py myapp
 
 The stream key is a server-to-server credential — keep it in your secret
-store, never in browser code or embed URLs. See docs/api-v1.md.
+store, never in browser code or embed URLs. See docs/api.md.
 """
 
 import json

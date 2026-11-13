@@ -8,6 +8,7 @@ import { once } from 'node:events';
 import express from 'express';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createLogViewer } from '../src/viewer';
+import { MemoryProvider } from '../src/provider/memory';
 import type { Authorizer } from '../src/auth';
 
 const quiet = { log() {}, warn() {}, error() {} };
@@ -137,7 +138,10 @@ test('custom authorizer scopes reads per source over HTTP and WS', async () => {
     if (!ctx.source) return true;
     return ctx.source.name.startsWith(`${tenant}-`) || { status: 403, error: 'not your log', code: 'tenant_mismatch' };
   };
-  const viewer = createLogViewer({ authorize, logger: quiet, ui: false });
+  const mem = new MemoryProvider('mem');
+  mem.addLog({ id: 'a-jobs', name: 'a-jobs' });
+  mem.addLog({ id: 'b-jobs', name: 'b-jobs' });
+  const viewer = createLogViewer({ authorize, providers: [mem], logger: quiet, ui: false });
   const { url } = await viewer.listen(0, '127.0.0.1');
   const base = url;
   try {
@@ -153,6 +157,29 @@ test('custom authorizer scopes reads per source over HTTP and WS', async () => {
     assert.deepEqual(await denied.json(), { error: 'not your log', code: 'tenant_mismatch' });
     const caps = await (await fetch(base + '/api/v1/capabilities', as('a'))).json();
     assert.equal(caps.mutationAuth, 'custom');
+
+    // A merged view would expose b's entries: denied.
+    viewer.streams!.append('a-api', ['hello a api']);
+    const merge = await fetch(base + '/api/logs/merge', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-tenant': 'a' },
+      body: JSON.stringify({ ids: ['s:a-web', 's:b-web'] }),
+    });
+    assert.equal(merge.status, 403);
+    const ok = await fetch(base + '/api/logs/merge', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-tenant': 'a' },
+      body: JSON.stringify({ ids: ['s:a-web', 's:a-api'] }),
+    });
+    assert.equal(ok.status, 200);
+
+    // Provider logs are scoped the same way, before they are opened.
+    const cat = await (await fetch(base + '/api/v1/providers/mem/logs', as('a'))).json();
+    assert.deepEqual(cat.logs.map((l: { id: string }) => l.id), ['a-jobs']);
+    const deniedOpen = await fetch(base + '/api/v1/providers/mem/logs/b-jobs/open', { method: 'POST', ...as('a') });
+    assert.equal(deniedOpen.status, 403);
+    const okOpen = await fetch(base + '/api/v1/providers/mem/logs/a-jobs/open', { method: 'POST', ...as('a') });
+    assert.equal(okOpen.status, 200);
 
     const sub = wsFrames(url.replace('http', 'ws') + '/ws');
     await sub.opened;

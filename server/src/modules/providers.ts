@@ -92,16 +92,23 @@ export function providersModule(ctx: ModuleContext, opts: ProvidersOptions = {})
         res.status(502).json({ error: `provider ${provider.id} failed to list logs: ${(err as Error).message}` });
         return;
       }
-      res.json({
-        logs: logs.map((l) => ({ ...l, open: store.sources.has(providerSourceId(provider.id, l.id)) || undefined })),
-      });
+      // Only the logs the caller may read (custom authorizers can scope them).
+      const visible = [];
+      for (const l of logs) {
+        const id = providerSourceId(provider.id, l.id);
+        if ((await ctx.check(req, 'read', { source: { id, kind: 'provider', name: l.name } })) !== true) continue;
+        visible.push({ ...l, open: store.sources.has(id) || undefined });
+      }
+      res.json({ logs: visible });
     })
   );
 
   app.post(
     '/api/v1/providers/:pid/logs/:logId/open',
     wrap(async (req, res) => {
-      if (!(await ctx.allow(req, res, 'open'))) return;
+      const target = { id: providerSourceId(req.params.pid, req.params.logId), kind: 'provider', name: req.params.logId };
+      if (!(await ctx.allow(req, res, 'open', { source: target }))) return;
+      if (!(await ctx.allow(req, res, 'read', { source: target }))) return;
       try {
         res.json(sourceInfo(await open(req.params.pid, req.params.logId)));
       } catch (err) {

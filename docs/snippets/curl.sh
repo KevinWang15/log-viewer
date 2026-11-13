@@ -4,7 +4,7 @@
 #   LOG_VIEWER_BASE=http://127.0.0.1:5178 LOG_VIEWER_SERVICE_KEY=… ./curl.sh myapp
 #
 # The stream key is a server-to-server credential — keep it in your secret
-# store, never in browser code or embed URLs. See docs/api-v1.md.
+# store, never in browser code or embed URLs. See docs/api.md.
 set -euo pipefail
 
 BASE="${LOG_VIEWER_BASE:-http://127.0.0.1:5178}"

@@ -21,6 +21,11 @@ export function mergeModule(ctx: ModuleContext): ViewerModule {
         return;
       }
       if (!(await ctx.allow(req, res, 'open'))) return;
+      // A merged view shows its children's entries: the caller must be
+      // allowed to read every one of them.
+      for (const child of children) {
+        if (!(await ctx.allow(req, res, 'read', { source: child }))) return;
+      }
       const src = new MergedSource(ctx.nextId('m'), req.body?.name || 'Merged Logs', children);
       store.addSource(src);
       res.json(sourceInfo(src));

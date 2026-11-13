@@ -10,7 +10,7 @@
 // attribute after mount (e.g. channel) re-mounts and re-subscribes the widget.
 //
 // Host events (dispatched from the element, bubbling, same semantics as the
-// iframe postMessage bridge documented in docs/embedding.md):
+// iframe postMessage bridge documented in docs/embedding-ui.md):
 //   log-viewer-ready
 //   log-viewer-entry-selected  detail: { entry: { t, lv, th, lg, msg } }
 //   log-viewer-stats           detail: { count, levels }

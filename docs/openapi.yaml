@@ -3,27 +3,35 @@ info:
   title: log-viewer API
   version: v1
   description: |
-    REST API of the log-viewer log viewer. The `v1` streams API is the
-    stable producer lifecycle for embedded, in-memory log streams; the
-    `/api/logs/*` endpoints are the read/analysis surface used by the web UI
-    and the embeddable widget.
+    HTTP API of log-viewer. The `v1` streams API is the stable producer
+    lifecycle for in-memory log streams. The `/api/logs/*` endpoints are the
+    read and analysis surface used by the web UI and the embeddable widget.
+
+    Routes belong to feature modules (core, files, streams, merge, remote,
+    providers). A route exists only when its module is enabled; the CLI
+    enables all of them. `GET /api/v1/capabilities` lists the enabled
+    modules under `modules`.
 
     Producers should discover the deployment with `GET /api/v1/capabilities`
-    and must not construct internal source IDs — use the `id` returned by the
+    and must not construct internal source IDs. Use the `id` returned by the
     streams lifecycle with the windowed read endpoints.
 
-    Live updates are delivered over `WS /ws` (not described by this document):
-    send `{"type":"sub","id":"<source-id>","viewKey":"…"}` and receive
-    `reset`/`append` notifications; entry text still comes from the windowed
-    HTTP reads. Producers may also ingest with
-    `{"type":"publish","channel":"…","lines":[…]}`.
+    Paths are relative to the mount point. A viewer mounted under a prefix
+    such as `/logs` serves `/logs/api/...` and `/logs/healthz`.
 
-    Auth: when `STREAM_KEY`/`STREAM_TOKENS` are configured, stream mutations
-    require the `x-stream-key` header. When `VIEW_KEY` is configured, every
-    read endpoint under `/api` (all except `/healthz`) requires the
-    `x-view-key` header or the `viewKey` query parameter; the master
-    `x-stream-key` also satisfies read auth. With neither set, all endpoints
-    are open — keep the service private or behind an authenticated proxy.
+    Live updates use the WebSocket at `/ws`. The WebSocket protocol is
+    documented in docs/api.md, not here.
+
+    Auth: every operation maps to an authorization action (`read`,
+    `view-state`, `open`, `ingest`, `configure`; see docs/api.md). With the
+    built-in key scheme, stream mutations require the `x-stream-key` header
+    when `STREAM_KEY` or `STREAM_TOKENS` is configured. When `VIEW_KEY` is
+    configured, every GET under `/api` requires the `x-view-key` header or
+    the `viewKey` query parameter; the master `x-stream-key` also satisfies
+    read auth. `/healthz` is never authenticated. With no keys set, all
+    endpoints are open, so keep the service private or behind an
+    authenticated proxy. A host application can replace the key scheme with
+    its own `authorize` hook.
   contact: {}
 servers:
   - url: http://127.0.0.1:5178
@@ -37,6 +45,10 @@ tags:
     description: Filters, search, correlation, reports
   - name: meta
     description: Discovery and health
+  - name: files
+    description: Server-side file browsing and opening (files module)
+  - name: providers
+    description: Provider log catalogs and mirrors (providers module)
 paths:
   /healthz:
     get:
@@ -55,9 +67,10 @@ paths:
                 properties:
                   ok: { type: boolean }
                   uptime: { type: number, description: Process uptime in seconds }
-                  sources: { type: integer }
-                  streams: { type: integer }
-                  streamBytes: { type: integer }
+                  sources: { type: integer, description: Open sources of every kind }
+                  streams: { type: integer, description: Open streams (streams module) }
+                  streamBytes: { type: integer, description: Retained stream bytes (streams module) }
+                  providerLogs: { type: integer, description: Open provider mirrors (providers module) }
   /api/v1/capabilities:
     get:
       tags: [meta, streams]
@@ -72,19 +85,59 @@ paths:
                 type: object
                 properties:
                   service: { type: string, example: log-viewer }
-                  serviceVersion: { type: string }
+                  serviceVersion:
+                    type: string
+                    description: The `version` option (CLI `APP_VERSION`), default the package version.
                   apiVersion: { type: string, example: v1 }
                   streamLifecycle:
-                    type: object
-                    properties:
-                      create: { type: string, example: 'PUT /api/v1/streams/:channel' }
-                      append: { type: string, example: 'POST /api/v1/streams/:channel/entries' }
-                      inspect: { type: string, example: 'GET /api/v1/streams/:channel' }
-                      delete: { type: string, example: 'DELETE /api/v1/streams/:channel' }
+                    description: Absent when the streams module is disabled. Same as `modules.streams.lifecycle`.
+                    allOf:
+                      - $ref: '#/components/schemas/StreamLifecycle'
                   mutationAuth:
                     type: string
-                    enum: [x-stream-key, none]
-                  limits: { $ref: '#/components/schemas/StreamLimits' }
+                    enum: [x-stream-key, none, custom]
+                    description: '`custom` when the host app supplied its own `authorize` hook.'
+                  limits:
+                    description: Stream limits; only `maxPayloadBytes` when the streams module is disabled.
+                    allOf:
+                      - $ref: '#/components/schemas/StreamLimits'
+                  modules:
+                    type: object
+                    description: |
+                      One key per enabled module other than core. A missing
+                      key means the module and its routes are disabled.
+                    properties:
+                      streams:
+                        type: object
+                        properties:
+                          lifecycle: { $ref: '#/components/schemas/StreamLifecycle' }
+                          mutationAuth: { type: string, enum: [x-stream-key, none, custom] }
+                          limits: { $ref: '#/components/schemas/StreamLimits' }
+                          spool: { type: boolean, description: Disk spooling is on }
+                          demo: { type: boolean, description: The `demo` channel is running }
+                      files:
+                        type: object
+                        properties:
+                          root: { type: string, description: Absolute browse root }
+                          samples: { type: string, description: Sample logs directory, absent when disabled }
+                          watch:
+                            type: array
+                            items: { type: string }
+                            description: Directory watch globs, absent when off
+                      merge:
+                        type: object
+                        description: Empty object.
+                      remote:
+                        type: object
+                        properties:
+                          maxEntries: { type: integer, description: Entries kept per remote mirror (0 = unbounded) }
+                      providers:
+                        type: object
+                        properties:
+                          providers:
+                            type: array
+                            items: { $ref: '#/components/schemas/ProviderInfo' }
+                          maxOpen: { type: integer, description: Max provider logs open at once (0 = unlimited) }
   /api/v1/streams/{channel}:
     parameters:
       - $ref: '#/components/parameters/channel'
@@ -108,6 +161,11 @@ paths:
               schema: { $ref: '#/components/schemas/StreamAck' }
         '400': { $ref: '#/components/responses/BadChannel' }
         '401': { $ref: '#/components/responses/StreamKeyRequired' }
+        '503':
+          description: '`STREAM_MAX_SOURCES` exhausted (`stream_capacity_reached`).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
     get:
       tags: [streams]
       summary: Inspect a stream without creating it
@@ -158,17 +216,7 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                lines:
-                  type: array
-                  items: { type: string }
-                  description: Raw log lines, parsed with the stream's format.
-                entries:
-                  type: array
-                  items: { $ref: '#/components/schemas/StructuredEntry' }
-                  description: Structured entries (mapped fields only).
+            schema: { $ref: '#/components/schemas/AppendBody' }
       responses:
         '200':
           description: Append acknowledgement.
@@ -183,6 +231,70 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: '`STREAM_MAX_SOURCES` exhausted (`stream_capacity_reached`).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/streams/{channel}:
+    parameters:
+      - name: channel
+        in: path
+        required: true
+        schema: { type: string }
+        description: Stream channel. The legacy routes do not validate the channel shape.
+    get:
+      tags: [streams]
+      summary: Legacy stream inspect (creates the stream)
+      deprecated: true
+      description: |
+        Pre-v1 route. Creates the stream when it is missing and returns its
+        source info. Needs only read access. Responses carry
+        `Deprecation: true` and `Link: </api/v1/streams/{channel}>;
+        rel="successor-version"`. Use `PUT`/`GET /api/v1/streams/{channel}`.
+      operationId: legacyGetStream
+      responses:
+        '200':
+          description: Stream source info.
+          headers:
+            Deprecation: { $ref: '#/components/headers/Deprecation' }
+            Link: { $ref: '#/components/headers/SuccessorLink' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceInfo' }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '503':
+          description: '`STREAM_MAX_SOURCES` exhausted (`stream_capacity_reached`).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    post:
+      tags: [streams]
+      summary: Legacy append (creates the stream)
+      deprecated: true
+      description: |
+        Pre-v1 route. Creates the stream when it is missing, appends `lines`
+        and/or `entries`, and returns the full source info. The `Link` header
+        points at `/api/v1/streams/{channel}/entries`.
+      operationId: legacyAppendStream
+      security:
+        - streamKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AppendBody' }
+      responses:
+        '200':
+          description: Stream source info after the append.
+          headers:
+            Deprecation: { $ref: '#/components/headers/Deprecation' }
+            Link: { $ref: '#/components/headers/SuccessorLink' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceInfo' }
+        '401': { $ref: '#/components/responses/StreamKeyRequired' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '503':
           description: '`STREAM_MAX_SOURCES` exhausted (`stream_capacity_reached`).'
           content:
@@ -274,6 +386,10 @@ paths:
     post:
       tags: [analysis]
       summary: Create a filtered view
+      description: |
+        The body is `{criteria}`; a bare criteria object is also accepted.
+        Filters stay current as entries are appended. Auth action:
+        `view-state`.
       operationId: createFilter
       requestBody:
         required: true
@@ -672,7 +788,8 @@ paths:
         For streams the retained buffer is re-parsed and the pattern also
         applies to newly appended lines. Patterns are per-source, in memory
         only, and limited to 500 characters. Stream sources require the
-        mutation key. Not supported for merged views.
+        mutation key. Supported for file and stream sources only (merged,
+        remote and provider sources return 400). Auth action: `configure`.
       operationId: setParser
       security:
         - streamKey: []
@@ -696,7 +813,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SourceInfo' }
         '400':
-          description: Pattern cannot be compiled, or merged view.
+          description: Pattern cannot be compiled, or the source kind does not support custom parsers.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -716,12 +833,306 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SourceInfo' }
         '400':
-          description: Merged view.
+          description: The source kind does not support custom parsers.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '401': { $ref: '#/components/responses/StreamKeyRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/logs/{id}/export:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+      - $ref: '#/components/parameters/filterId'
+    get:
+      tags: [analysis]
+      summary: Download the current view as plain text
+      description: |
+        Writes the raw text of every entry in the view, one entry per line,
+        as an attachment named `<source-name>-view.log`. Capped at 2,000,000
+        entries.
+      operationId: exportView
+      responses:
+        '200':
+          description: Plain-text export.
+          headers:
+            Content-Disposition:
+              schema: { type: string, example: 'attachment; filename="app.log-view.log"' }
+          content:
+            text/plain:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/browse:
+    get:
+      tags: [files]
+      summary: List a directory under the file root
+      description: |
+        Hidden entries (names starting with `.`) are skipped. Without `path`
+        the sample logs directory is listed, or the root when samples are
+        disabled.
+      operationId: browse
+      parameters:
+        - name: path
+          in: query
+          schema: { type: string }
+          description: Absolute directory path inside the root or the samples directory.
+      responses:
+        '200':
+          description: Directory listing.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path: { type: string }
+                  parent: { type: string }
+                  root: { type: string }
+                  samples:
+                    type: string
+                    description: Sample logs directory. Absent when samples are disabled.
+                  dirs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        size: { type: integer }
+                        mtime: { type: number, description: Epoch ms }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '403': { $ref: '#/components/responses/OutsideRoot' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/stat:
+    get:
+      tags: [files]
+      summary: Stat a path under the file root
+      operationId: stat
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: File metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path: { type: string }
+                  size: { type: integer }
+                  mtime: { type: number, description: Epoch ms }
+                  isFile: { type: boolean }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '403': { $ref: '#/components/responses/OutsideRoot' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/logs/open:
+    post:
+      tags: [files]
+      summary: Open (and tail) a file, a byte range of it, or a gzipped file
+      description: |
+        Returns the existing source when the same path and range are already
+        open. A whole file is tailed; a byte-range chunk is not. Gzip is
+        detected by magic bytes; gzipped files are decompressed to a temp
+        file, are not tailed and do not accept `start`/`end`. Auth action:
+        `open`.
+      operationId: openFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string, description: Absolute path inside the root or the samples directory }
+                start: { type: integer, minimum: 0, description: First byte to index }
+                end: { type: integer, minimum: 0, description: End byte (exclusive) }
+      responses:
+        '200':
+          description: Source info of the opened file.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceInfo' }
+        '400':
+          description: Byte range on a gzipped file, or a corrupt gzip file.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '403': { $ref: '#/components/responses/OutsideRoot' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: Decompressed size exceeds the gzip limit (`GZIP_MAX_BYTES`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/logs/merge:
+    post:
+      tags: [sources]
+      summary: Merge open sources into one time-ordered view
+      description: |
+        Unknown ids are ignored. Merged views cannot be merged again.
+        Removing a child source removes the merged view. Auth actions:
+        `open`, plus `read` on every child.
+      operationId: mergeSources
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  items: { type: string }
+                  minItems: 2
+                name: { type: string, default: Merged Logs }
+      responses:
+        '200':
+          description: 'Source info of the merged view (`kind` is `merged`).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceInfo' }
+        '400':
+          description: Fewer than 2 open sources, or a merged view among them.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/logs/remote:
+    post:
+      tags: [sources]
+      summary: Mirror a source of a peer log-viewer instance
+      description: |
+        Loads the peer source over its HTTP entries API and tails it over the
+        peer's `/ws`. The mirror is read-only. Auth action: `open`.
+      operationId: openRemote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, source]
+              properties:
+                url: { type: string, example: 'http://peer:5178', description: Peer base URL (may include a mount prefix) }
+                source: { type: string, description: Source id on the peer }
+                viewKey: { type: string, description: The peer's view key, forwarded on every fetch }
+      responses:
+        '200':
+          description: 'Source info of the mirror (`kind` is `remote`).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceInfo' }
+        '400':
+          description: Missing `url`/`source`, or not an http(s) URL.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: The peer rejected the view key.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Unknown source on the peer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '502':
+          description: Peer unreachable or returned another error.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/v1/providers:
+    get:
+      tags: [providers]
+      summary: List registered providers
+      operationId: listProviders
+      responses:
+        '200':
+          description: Registered providers.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items: { $ref: '#/components/schemas/ProviderInfo' }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+  /api/v1/providers/{pid}/logs:
+    parameters:
+      - $ref: '#/components/parameters/providerId'
+      - name: fresh
+        in: query
+        schema: { type: string, enum: ['1'] }
+        description: '`1` bypasses the catalog cache (default TTL 10 s).'
+    get:
+      tags: [providers]
+      summary: A provider's log catalog
+      description: Lists only the logs the caller may read.
+      operationId: listProviderLogs
+      responses:
+        '200':
+          description: Log descriptors from the provider's `listLogs()`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items: { $ref: '#/components/schemas/CatalogLog' }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '502':
+          description: The provider failed to list its logs.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/v1/providers/{pid}/logs/{logId}/open:
+    parameters:
+      - $ref: '#/components/parameters/providerId'
+      - name: logId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [providers]
+      summary: Open (or return) the live mirror of a provider log
+      description: |
+        The mirror's source id is `p:<pid>:<logId>`. Opening an already open
+        log returns the existing mirror. No request body is needed. Auth
+        actions: `open` and `read` for the source `p:<pid>:<logId>`.
+      operationId: openProviderLog
+      responses:
+        '200':
+          description: 'Source info of the mirror (`kind` is `provider`).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceInfo' }
+        '404':
+          description: Unknown provider or log.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429':
+          description: Too many provider logs open (`provider_capacity_reached`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '502':
+          description: The provider failed while opening the log (or the status of a `ProviderError`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 components:
   securitySchemes:
     streamKey:
@@ -742,7 +1153,22 @@ components:
       in: query
       name: viewKey
       description: Query-parameter form of the read credential.
+  headers:
+    Deprecation:
+      description: Always `true` on the legacy stream routes.
+      schema: { type: string, example: 'true' }
+    SuccessorLink:
+      description: The v1 route that replaces this one.
+      schema: { type: string, example: '</api/v1/streams/web>; rel="successor-version"' }
   parameters:
+    providerId:
+      name: pid
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._-]{1,64}$'
+      description: Provider id.
     channel:
       name: channel
       in: path
@@ -764,6 +1190,16 @@ components:
       schema: { type: string }
       description: Filter id from `POST /api/logs/{id}/filters`.
   responses:
+    OutsideRoot:
+      description: Path outside the file root and the samples directory.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PayloadTooLarge:
+      description: Encoded request exceeded `STREAM_MAX_PAYLOAD_BYTES`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
     BadChannel:
       description: Channel fails the `[A-Za-z0-9][A-Za-z0-9._:-]{0,127}` shape.
       content:
@@ -804,6 +1240,48 @@ components:
         maxSources: { type: integer, default: 16 }
         idleTtlSeconds: { type: integer, default: 3600 }
         maxPayloadBytes: { type: integer, default: 2097152 }
+    StreamLifecycle:
+      type: object
+      properties:
+        create: { type: string, example: 'PUT /api/v1/streams/:channel' }
+        append: { type: string, example: 'POST /api/v1/streams/:channel/entries' }
+        inspect: { type: string, example: 'GET /api/v1/streams/:channel' }
+        delete: { type: string, example: 'DELETE /api/v1/streams/:channel' }
+    AppendBody:
+      type: object
+      properties:
+        lines:
+          type: array
+          items: { type: string }
+          description: Raw log lines, parsed with the stream's format. Lines that do not start an entry join the previous entry.
+        entries:
+          type: array
+          items: { $ref: '#/components/schemas/StructuredEntry' }
+          description: Structured entries (mapped fields only).
+    ProviderInfo:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string, description: Defaults to the id }
+        capabilities:
+          type: object
+          description: Reserved for query pushdown; ignored by v1.
+          properties:
+            count: { type: boolean }
+            query: { type: boolean }
+            search: { type: boolean }
+    CatalogLog:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        labels:
+          type: object
+          additionalProperties: { type: string }
+        open:
+          type: boolean
+          description: Present (true) when this log's mirror is open.
     StreamAck:
       type: object
       properties:
@@ -822,28 +1300,32 @@ components:
           description: Present on the create (PUT) response.
     StructuredEntry:
       type: object
+      required: [message]
+      description: Entries without a string `message` are skipped.
       properties:
         time:
+          description: Epoch ms or a timestamp string. Missing or unparsable means the time of ingestion.
           oneOf:
             - { type: integer, description: Epoch milliseconds }
             - { type: string, format: date-time }
         level:
           type: string
-          enum: [TRACE, DEBUG, INFO, WARN, ERROR, FATAL]
+          description: TRACE, DEBUG, INFO, WARN, ERROR or FATAL (common aliases such as `warning` are accepted).
+          example: WARN
         thread: { type: string }
         logger: { type: string }
-        message: { type: string }
+        message: { type: string, description: Full text; the first line is shown in the grid }
     EntryOut:
       type: object
       description: Compact grid shape.
       properties:
         i: { type: integer, description: Entry index in the source }
-        t: { type: integer, description: Epoch-millisecond timestamp }
+        t: { type: integer, description: 'Epoch ms, or ms since midnight for time-only stamps; 0 = missing' }
         lv: { type: integer, description: Level index, 0=TRACE … 5=FATAL }
         th: { type: string, description: Thread }
         lg: { type: string, description: Logger }
         msg: { type: string, description: Parsed message }
-        raw: { type: string, description: Full raw entry text }
+        raw: { type: string, description: Full raw entry text incl. continuation lines (capped at 64 KiB) }
         src:
           type: string
           description: Child source name (merged views only)
@@ -937,7 +1419,11 @@ components:
         id: { type: string }
         kind:
           type: string
-          enum: [file, stream, merged]
+          description: |
+            Open set. Built-in values: `file`, `stream`, `merged`, `remote`,
+            `provider`. Sources added by a host application may use their own
+            kind; treat unknown values as generic sources.
+          example: stream
         name: { type: string }
         path:
           type: string
@@ -957,10 +1443,36 @@ components:
         pattern:
           type: string
           description: Active custom conversion pattern, if any.
-        gzipped: { type: boolean }
+        gzipped: { type: boolean, description: File sources only; present (true) for gzipped files }
         origin: { type: string, description: e.g. "watch" for monitor-opened sources }
-        bytes: { type: integer, description: Streams only }
+        bytes: { type: integer, description: Streams only, retained byte estimate }
         lastActivityAt: { type: integer, description: Streams only, epoch ms }
+        remote:
+          type: object
+          description: Remote mirrors only.
+          properties:
+            url: { type: string }
+            source: { type: string, description: Source id on the peer }
+        connected:
+          type: boolean
+          description: Remote and provider mirrors. Remote, true while synced with the peer's WebSocket; provider, true in state `live` or `polling`.
+        provider:
+          type: object
+          description: Provider mirrors only.
+          properties:
+            id: { type: string }
+            name: { type: string }
+            log: { type: string, description: Log id within the provider }
+        description: { type: string, description: Provider mirrors, from the log descriptor }
+        labels:
+          type: object
+          additionalProperties: { type: string }
+          description: Provider mirrors, from the log descriptor
+        state:
+          type: string
+          enum: [loading, live, polling, reconnecting, failed, closed]
+          description: Provider mirrors only.
+        lastError: { type: string, description: Provider mirrors, last provider error message }
         rules:
           type: array
           items: { $ref: '#/components/schemas/Rule' }

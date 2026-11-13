@@ -109,10 +109,11 @@ export class ProviderSource extends BaseSource {
       backoffMaxMs: opts.backoffMaxMs ?? 30_000,
     };
     this.logger = opts.logger ?? console;
-    // Exact cap: keep precisely the newest maxEntries, like a tail window.
+    // Once full, evict down to ~90% so a busy log resets (and clears
+    // bookmarks) once per ~10% of new records instead of on every batch.
     this.buf = new EntryBuffer(
       this.stats,
-      { maxEntries: this.opts.maxEntries, maxBytes: this.opts.maxBytes, headroom: false },
+      { maxEntries: this.opts.maxEntries, maxBytes: this.opts.maxBytes, headroom: true },
       'provider entry'
     );
   }
@@ -228,12 +229,14 @@ export class ProviderSource extends BaseSource {
     let last: Cursor | null = null;
     for (const r of records) {
       const e = recordToEntry(r);
+      // A record with a cursor still advances it, even when it is unusable
+      // (no message), so the same page is not fetched again.
+      if (r && (typeof r.cursor === 'string' || typeof r.cursor === 'number') && r.cursor !== '') last = String(r.cursor);
       if (!e) {
         this.droppedRecords++;
         continue;
       }
       entries.push(e);
-      last = String(r.cursor);
     }
     return { entries, last };
   }
@@ -260,7 +263,8 @@ export class ProviderSource extends BaseSource {
         if (max > 0 && entries.length > max * 2) entries = entries.slice(entries.length - max);
         if (conv.last !== null) after = conv.last;
         const more = page.more ?? (page.records?.length ?? 0) >= this.opts.pageLimit;
-        if (!more || (page.records?.length ?? 0) === 0) break;
+        // Stop when caught up, or when the page had no usable cursor.
+        if (!more || (page.records?.length ?? 0) === 0 || conv.last === null) break;
       }
       last = after;
     }
@@ -320,7 +324,8 @@ export class ProviderSource extends BaseSource {
       this.append(entries, last);
       const n = page.records?.length ?? 0;
       const more = page.more ?? n >= this.opts.pageLimit;
-      if (!more || n === 0) return;
+      // No usable cursor on the page: paging on would refetch it forever.
+      if (!more || n === 0 || last === null) return;
     }
   }
 

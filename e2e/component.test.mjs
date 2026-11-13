@@ -1,4 +1,4 @@
-// Browser e2e for the <log-viewer> custom element (docs/embedding.md).
+// Browser e2e for the <log-viewer> custom element (docs/embedding-ui.md).
 //
 // Self-contained: spawns the built server on an ephemeral port, serves the
 // built web/dist on another, and drives component.html with system Chrome.

@@ -354,3 +354,42 @@ test('ProviderError status is used when opening fails', async () => {
 test('CursorExpiredError is exported for providers', () => {
   assert.ok(new CursorExpiredError() instanceof ProviderError);
 });
+
+test('a page of unusable records with more=true does not spin', async () => {
+  let calls = 0;
+  const provider = defineProvider({
+    id: 'junk',
+    logs: async () => [desc],
+    list: async (_id, req) => {
+      calls++;
+      if (req.after === null) return { records: [{ cursor: '1', message: 'ok' }], more: false };
+      // Every later page: no cursors at all, but claims more.
+      return { records: [{ message: 'x' } as never, { message: 'y' } as never], more: true };
+    },
+  });
+  const src = await ProviderSource.open(provider, desc, fast);
+  try {
+    await new Promise((r) => setTimeout(r, 200));
+    assert.ok(calls < 40, `list called ${calls} times in 200 ms`);
+    assert.equal(src.count, 1);
+  } finally {
+    await src.close();
+  }
+});
+
+test('a full provider mirror evicts to ~90% instead of resetting on every batch', async () => {
+  const mem = memory({}, 20);
+  const src = await ProviderSource.open(mem, desc, { ...fast, maxEntries: 20 });
+  const log = events(src);
+  try {
+    await until(() => mem.calls.watch >= 1, 3000, 'watch');
+    mem.push('app', [rec(20)]);
+    await until(() => log.some((e) => e.type === 'reset'), 3000, 'reset');
+    assert.equal(src.count, 18);
+    mem.push('app', [rec(21)]);
+    await until(() => src.count === 19, 3000, 'append');
+    assert.equal(log.filter((e) => e.type === 'reset').length, 1, 'the next batch appends');
+  } finally {
+    await src.close();
+  }
+});

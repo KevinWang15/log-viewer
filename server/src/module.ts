@@ -12,6 +12,13 @@ import type { WsHub, WsMessageContext } from './ws-hub';
 import type { Logger } from './options';
 export type { Logger };
 
+// What an authorization request is about: a source (open or about to be
+// opened, e.g. a provider log) and/or a stream channel.
+export interface AuthTarget {
+  source?: Pick<LogSource, 'id' | 'kind' | 'name'>;
+  channel?: string;
+}
+
 export interface ModuleContext {
   router: Express;
   store: Store;
@@ -22,9 +29,9 @@ export interface ModuleContext {
   // The JSON shape of a source (GET /api/logs/:id).
   sourceInfo(src: LogSource): Record<string, unknown>;
   // Asks the authorizer; on denial sends the error response and returns false.
-  allow(req: Request, res: Response, action: AuthAction, target?: { source?: LogSource; channel?: string }): Promise<boolean>;
+  allow(req: Request, res: Response, action: AuthAction, target?: AuthTarget): Promise<boolean>;
   // Asks the authorizer without sending anything (e.g. to filter lists).
-  check(req: Request, action: AuthAction, target?: { source?: LogSource; channel?: string }): Promise<AuthDecision>;
+  check(req: Request, action: AuthAction, target?: AuthTarget): Promise<AuthDecision>;
   // Asks the authorizer on behalf of a WebSocket message.
   checkWs(
     ws: WsMessageContext,
