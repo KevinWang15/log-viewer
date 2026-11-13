@@ -7,7 +7,7 @@ import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import { WebSocketServer, WebSocket } from 'ws';
 import { configFromEnv } from './config';
-import { BaseSource, Criteria, FileLogSource, isGzipFile, MergedSource, RemoteSource, StreamSource, textTester } from './sources';
+import { Criteria, FileLogSource, isGzipFile, LogSource, MergedSource, RemoteSource, StreamSource, textTester } from './sources';
 import { compilePattern, LEVEL_NAMES, LogFormat } from './parser';
 import { Store, RuleActions, RuleEntry, RuleLimitError, StoreCapacityError } from './store';
 import { StreamSpooler } from './spool';
@@ -60,24 +60,19 @@ function ruleInfo(rule: RuleEntry) {
   };
 }
 
-function sourceInfo(src: BaseSource) {
+// Generic fields plus whatever the source adds through describe().
+function sourceInfo(src: LogSource) {
   return {
     id: src.id,
     kind: src.kind,
     name: src.name,
-    path: src instanceof FileLogSource ? src.path : undefined,
     count: src.count,
     stats: src.stats,
     threads: src.threadList,
     loggers: src.loggerList,
     format: src.formatName,
-    pattern: src instanceof FileLogSource || src instanceof StreamSource ? src.customPattern : undefined,
-    gzipped: src instanceof FileLogSource && src.gzipped ? true : undefined,
-    remote: src instanceof RemoteSource ? { url: src.remoteUrl, source: src.remoteSourceId } : undefined,
-    connected: src instanceof RemoteSource ? src.connected : undefined,
+    ...src.describe?.(),
     origin: store.originFor(src.id),
-    bytes: src instanceof StreamSource ? src.bytes : undefined,
-    lastActivityAt: src instanceof StreamSource ? src.lastActivityAt : undefined,
     rules: store.rulesFor(src.id).map(ruleInfo),
   };
 }
@@ -263,7 +258,7 @@ app.post(
   '/api/logs/merge',
   wrap(async (req, res) => {
     const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
-    const children = ids.map((id) => store.sources.get(id)).filter((s): s is BaseSource => !!s);
+    const children = ids.map((id) => store.sources.get(id)).filter((s): s is LogSource => !!s);
     if (children.length < 2) {
       res.status(400).json({ error: 'merge requires at least 2 open sources' });
       return;

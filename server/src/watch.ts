@@ -5,7 +5,7 @@
 import * as path from 'node:path';
 import * as fsp from 'node:fs/promises';
 import { Store } from './store';
-import { BaseSource, FileLogSource, isGzipFile } from './sources';
+import { FileLogSource, isGzipFile, LogSource } from './sources';
 
 export type OpenResult = 'opened' | 'duplicate' | 'failed';
 export type OpenFileFn = (filePath: string) => Promise<OpenResult>;
@@ -16,7 +16,7 @@ export type OpenFileFn = (filePath: string) => Promise<OpenResult>;
 export function makeFileOpener(store: Store, nextId: () => string, origin?: string, gzipMaxBytes?: number): OpenFileFn {
   return async (filePath) => {
     if (store.sourceForPath(filePath)) return 'duplicate';
-    let src: BaseSource;
+    let src: LogSource;
     try {
       src = (await isGzipFile(filePath))
         ? await FileLogSource.openGz(nextId(), filePath, gzipMaxBytes)

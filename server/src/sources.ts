@@ -20,40 +20,10 @@ import { WebSocket } from 'ws';
 import { DEFAULTS } from './config';
 import { detectFormat, levelFromString, LogFormat, matchLine, ParsedLine, parseTimestamp, PLAIN_FORMAT } from './parser';
 
-export interface EntryOut {
-  i: number; // global entry index within the source
-  t: number; // epoch ms, or ms-since-midnight for time-only stamps
-  lv: number; // 0..5 TRACE..FATAL
-  th: string;
-  lg: string;
-  msg: string; // first-line message (grid display)
-  raw: string; // full entry text incl. continuation lines (capped)
-  src?: string; // originating source name (merged views)
-  // ms since the previous entry in the requested view; null for the first
-  // visible entry or when either timestamp is missing. Set by the entries
-  // endpoint, not stored.
-  elapsed?: number | null;
-}
+import type { AppendEvent, Criteria, EntryOut, LogSource } from './source-api';
+import { EntryBuffer } from './entry-buffer';
 
-export interface Criteria {
-  levels?: number[];
-  threads?: string[];
-  loggers?: string[];
-  text?: string;
-  regex?: boolean;
-  caseSensitive?: boolean;
-  exclude?: boolean;
-  timeFrom?: number;
-  timeTo?: number;
-}
-
-export interface AppendEvent {
-  startIdx: number;
-  added: number;
-  // Parsed appended entries when the batch was small enough; null means the
-  // consumer must re-evaluate filters from scratch.
-  entries: EntryOut[] | null;
-}
+export type { AppendEvent, Criteria, EntryOut, LogSource } from './source-api';
 
 const MAX_ENTRY_BYTES = 64 * 1024;
 const MAX_METADATA_BYTES = 4 * 1024;
@@ -152,9 +122,11 @@ export function matcherFor(c: Criteria): (e: EntryOut) => boolean {
   };
 }
 
-export abstract class BaseSource extends EventEmitter {
+// Helper base class for LogSource implementations: provides the generic
+// criteria evaluation, stats and message helpers on top of the accessors.
+export abstract class BaseSource extends EventEmitter implements LogSource {
   abstract readonly id: string;
-  abstract readonly kind: 'file' | 'stream' | 'merged' | 'remote';
+  abstract readonly kind: string;
   abstract readonly name: string;
   abstract get count(): number;
   abstract get formatName(): string;
@@ -303,6 +275,10 @@ export class FileLogSource extends BaseSource {
 
   get gzipped(): boolean {
     return this.gzippedPath !== undefined;
+  }
+
+  describe() {
+    return { path: this.path, pattern: this.customPattern, gzipped: this.gzipped ? true : undefined };
   }
 
   get count() {
@@ -663,14 +639,14 @@ export class MergedSource extends BaseSource {
   private idxOf: number[] = [];
   private mtimes: number[] = [];
   private closed = false;
-  private handlers: Array<{ child: BaseSource; append: (ev: AppendEvent) => void; reset: () => void }> = [];
+  private handlers: Array<{ child: LogSource; append: (ev: AppendEvent) => void; reset: () => void }> = [];
   // Scratch for rebuild(), reused so an out-of-order append doesn't
   // re-allocate the whole merge each time.
   private scratch: Array<{ s: number; i: number; t: number }> = [];
   private threadCache: string[] | null = null;
   private loggerCache: string[] | null = null;
 
-  constructor(readonly id: string, readonly name: string, readonly children: BaseSource[]) {
+  constructor(readonly id: string, readonly name: string, readonly children: LogSource[]) {
     super();
     this.rebuild();
     for (let s = 0; s < children.length; s++) {
@@ -687,6 +663,10 @@ export class MergedSource extends BaseSource {
       child.on('reset', reset);
       this.handlers.push({ child, append, reset });
     }
+  }
+
+  dependsOn(): readonly string[] {
+    return this.childIds;
   }
 
   get childIds(): string[] {
@@ -842,39 +822,36 @@ export class StreamSource extends BaseSource {
   readonly kind = 'stream' as const;
   format: LogFormat | null = null;
   customPattern?: string;
-  private entries: Array<EntryOut | undefined> = [];
-  private entryBytes: number[] = [];
-  private entryRawBytes: number[] = [];
-  private head = 0;
-  private retainedBytes = 0;
-  private threadSet = new Set<string>();
-  private loggerSet = new Set<string>();
-  // Refcounts so eviction can untrack incrementally instead of re-scanning
-  // every retained entry.
-  private threadCounts = new Map<string, number>();
-  private loggerCounts = new Map<string, number>();
-  private threads: string[] = [];
-  private loggers: string[] = [];
+  private buf: EntryBuffer;
+  // Format-detection samples; counted against maxBytes and released first.
   private firstLines: string[] = [];
   private firstLineBytes = 0;
   private lastActivity = Date.now();
   // Set by the store when SPOOL_DIR is active; receives every appended batch.
   spool?: StreamEntrySpool;
+  private readonly aux = {
+    bytes: () => this.firstLineBytes,
+    release: () => {
+      this.firstLines = [];
+      this.firstLineBytes = 0;
+    },
+  };
 
   constructor(
     readonly id: string,
     readonly name: string,
-    private readonly maxEntries: number = DEFAULTS.streamMaxEntries,
-    private readonly maxBytes: number = DEFAULTS.streamMaxBytes
+    maxEntries: number = DEFAULTS.streamMaxEntries,
+    maxBytes: number = DEFAULTS.streamMaxBytes
   ) {
     super();
+    this.buf = new EntryBuffer(this.stats, { maxEntries, maxBytes, headroom: true }, 'stream entry');
   }
 
   get count() {
-    return this.entries.length - this.head;
+    return this.buf.count;
   }
   get bytes() {
-    return this.retainedBytes + this.firstLineBytes;
+    return this.buf.bytes + this.firstLineBytes;
   }
   get lastActivityAt() {
     return this.lastActivity;
@@ -883,130 +860,30 @@ export class StreamSource extends BaseSource {
     return this.format?.name ?? 'plain';
   }
   get threadList() {
-    return this.threads;
+    return this.buf.threads;
   }
   get loggerList() {
-    return this.loggers;
+    return this.buf.loggers;
   }
   levelAt(i: number) {
-    return this.entryAt(i).lv;
+    return this.buf.at(i).lv;
   }
   threadAt(i: number) {
-    return this.entryAt(i).th;
+    return this.buf.at(i).th;
   }
   loggerAt(i: number) {
-    return this.entryAt(i).lg;
+    return this.buf.at(i).lg;
   }
   timeAt(i: number) {
-    return this.entryAt(i).t;
+    return this.buf.at(i).t;
   }
 
   touch(now = Date.now()) {
     this.lastActivity = now;
   }
 
-  private entryAt(i: number): EntryOut {
-    const entry = this.entries[this.head + i];
-    if (!entry) throw new RangeError(`stream entry index out of range: ${i}`);
-    return entry;
-  }
-
-  private track(e: EntryOut) {
-    this.threadCounts.set(e.th, (this.threadCounts.get(e.th) ?? 0) + 1);
-    if (!this.threadSet.has(e.th)) {
-      this.threadSet.add(e.th);
-      this.threads.push(e.th);
-    }
-    this.loggerCounts.set(e.lg, (this.loggerCounts.get(e.lg) ?? 0) + 1);
-    if (!this.loggerSet.has(e.lg)) {
-      this.loggerSet.add(e.lg);
-      this.loggers.push(e.lg);
-    }
-    this.stats[e.lv]++;
-  }
-
-  private untrackMeta(v: string, set: Set<string>, counts: Map<string, number>, list: string[]) {
-    const n = (counts.get(v) ?? 1) - 1;
-    if (n > 0) {
-      counts.set(v, n);
-      return;
-    }
-    counts.delete(v);
-    set.delete(v);
-    const i = list.indexOf(v);
-    if (i !== -1) list.splice(i, 1);
-  }
-
-  private untrack(e: EntryOut) {
-    this.stats[e.lv]--;
-    this.untrackMeta(e.th, this.threadSet, this.threadCounts, this.threads);
-    this.untrackMeta(e.lg, this.loggerSet, this.loggerCounts, this.loggers);
-  }
-
-  // Full re-scan; only needed when entry metadata is re-parsed (setFormat).
-  // Eviction untracks incrementally instead.
-  private rebuildTracking() {
-    this.threadSet.clear();
-    this.loggerSet.clear();
-    this.threadCounts.clear();
-    this.loggerCounts.clear();
-    this.threads = [];
-    this.loggers = [];
-    this.stats = [0, 0, 0, 0, 0, 0];
-    for (let i = 0; i < this.count; i++) this.track(this.entryAt(i));
-  }
-
-  private appendEntry(e: EntryOut) {
-    this.entries.push(e);
-    const rawBytes = Buffer.byteLength(e.raw);
-    this.entryRawBytes.push(rawBytes);
-    // The fixed allowance covers numbers, object fields and allocator overhead.
-    const bytes = 64 + rawBytes + Buffer.byteLength(e.msg) + Buffer.byteLength(e.th) + Buffer.byteLength(e.lg);
-    this.entryBytes.push(bytes);
-    this.retainedBytes += bytes;
-    this.track(e);
-  }
-
-  private compactIfUseful() {
-    if (this.head < 4096 || this.head * 2 < this.entries.length) return;
-    this.entries = this.entries.slice(this.head);
-    this.entryBytes = this.entryBytes.slice(this.head);
-    this.entryRawBytes = this.entryRawBytes.slice(this.head);
-    this.head = 0;
-  }
-
-  private retentionTarget(limit: number): number {
-    if (limit < 10) return limit;
-    return limit - Math.max(1, Math.ceil(limit / 10));
-  }
-
-  // Once a hard limit is crossed, evict enough entries to restore roughly
-  // 10% headroom. Dropped array slots are cleared immediately; occasional
-  // compaction only removes the cheap empty prefix.
-  private enforceRetention(): boolean {
-    const countExceeded = this.maxEntries > 0 && this.count > this.maxEntries;
-    const bytesExceeded = this.maxBytes > 0 && this.bytes > this.maxBytes;
-    if (!countExceeded && !bytesExceeded) return false;
-
-    const countTarget = countExceeded ? this.retentionTarget(this.maxEntries) : this.maxEntries || Infinity;
-    const bytesTarget = bytesExceeded ? this.retentionTarget(this.maxBytes) : this.maxBytes || Infinity;
-    // Format-detection samples are auxiliary and may duplicate retained plain
-    // lines, so release them before evicting real entries for a byte limit.
-    if (bytesExceeded && this.firstLines.length) {
-      this.firstLines = [];
-      this.firstLineBytes = 0;
-    }
-    while (this.count > 0 && (this.count > countTarget || this.bytes > bytesTarget)) {
-      const evicted = this.entries[this.head];
-      if (evicted) this.untrack(evicted);
-      this.retainedBytes -= this.entryBytes[this.head] || 0;
-      this.entries[this.head] = undefined;
-      this.entryBytes[this.head] = 0;
-      this.entryRawBytes[this.head] = 0;
-      this.head++;
-    }
-    this.compactIfUseful();
-    return true;
+  describe() {
+    return { pattern: this.customPattern, bytes: this.bytes, lastActivityAt: this.lastActivity };
   }
 
   // Re-parses retained entries with `format`; null restores auto-detection.
@@ -1014,7 +891,7 @@ export class StreamSource extends BaseSource {
   setFormat(format: LogFormat | null, pattern?: string): void {
     const heads: string[] = [];
     for (let i = 0; i < this.count; i++) {
-      const raw = this.entryAt(i).raw;
+      const raw = this.buf.at(i).raw;
       const nl = raw.indexOf('\n');
       heads.push(nl === -1 ? raw : raw.slice(0, nl));
     }
@@ -1023,7 +900,7 @@ export class StreamSource extends BaseSource {
     const fmt = this.format;
     if (fmt) {
       for (let i = 0; i < this.count; i++) {
-        const e = this.entryAt(i);
+        const e = this.buf.at(i);
         const p = fmt.parse(heads[i]);
         e.t = parseTimestamp(p.time);
         e.lv = levelFromString(p.level);
@@ -1032,7 +909,7 @@ export class StreamSource extends BaseSource {
         e.msg = truncateUtf8(p.message || heads[i], MAX_ENTRY_BYTES, '');
       }
     }
-    this.rebuildTracking();
+    this.buf.retrack();
     this.emit('reset');
   }
 
@@ -1074,13 +951,12 @@ export class StreamSource extends BaseSource {
           msg: truncateUtf8(p.message || line, MAX_ENTRY_BYTES, ''),
           raw: line,
         };
-        this.appendEntry(e);
+        this.buf.push(e);
         added.push(e);
       } else {
         const changedRetainedEntry = this.count <= startIdx;
-        const physical = this.entries.length - 1;
-        const last = this.entries[physical]!;
-        const rawBefore = this.entryRawBytes[physical];
+        const last = this.buf.last()!;
+        const rawBefore = this.buf.lastRawBytes();
         const addition = '\n' + line;
         const additionBytes = Buffer.byteLength(addition);
         // Fast path: measure only the appended line; the full re-measure (and
@@ -1095,16 +971,13 @@ export class StreamSource extends BaseSource {
           rawAfter = Buffer.byteLength(nextRaw);
         }
         if (nextRaw !== last.raw) {
-          last.raw = nextRaw;
-          this.entryRawBytes[physical] = rawAfter;
-          this.entryBytes[physical] += rawAfter - rawBefore;
-          this.retainedBytes += rawAfter - rawBefore;
+          this.buf.setLastRaw(nextRaw, rawAfter);
           changedExisting ||= changedRetainedEntry;
         }
       }
     }
     if (added.length) this.spool?.append(added);
-    if (this.enforceRetention()) {
+    if (this.buf.enforceRetention(this.aux)) {
       this.emit('reset');
     } else if (changedExisting) {
       // A cached row and any text filter may have changed without count growth.
@@ -1131,11 +1004,11 @@ export class StreamSource extends BaseSource {
         msg: raw.split('\n', 1)[0],
         raw,
       };
-      this.appendEntry(e);
+      this.buf.push(e);
       added.push(e);
     }
     if (added.length) this.spool?.append(added);
-    if (this.enforceRetention()) {
+    if (this.buf.enforceRetention(this.aux)) {
       this.emit('reset');
     } else if (added.length) {
       this.emit('append', { startIdx, added: added.length, entries: added } satisfies AppendEvent);
@@ -1149,7 +1022,7 @@ export class StreamSource extends BaseSource {
   restore(items: Array<Pick<EntryOut, 't' | 'lv' | 'th' | 'lg' | 'msg' | 'raw'>>) {
     this.touch();
     for (const it of items) {
-      const e: EntryOut = {
+      this.buf.push({
         i: this.count,
         t: typeof it.t === 'number' ? it.t : 0,
         lv: typeof it.lv === 'number' && it.lv >= 0 && it.lv <= 5 ? it.lv : 0,
@@ -1157,31 +1030,26 @@ export class StreamSource extends BaseSource {
         lg: typeof it.lg === 'string' ? it.lg : '',
         msg: typeof it.msg === 'string' ? it.msg : '',
         raw: it.raw,
-      };
-      this.appendEntry(e);
+      });
     }
-    this.enforceRetention();
+    this.buf.enforceRetention(this.aux);
   }
 
   async getEntries(idxs: number[]): Promise<EntryOut[]> {
     this.touch();
     const out: EntryOut[] = [];
-    for (const i of idxs) if (i >= 0 && i < this.count) out.push({ ...this.entryAt(i), i });
+    for (const i of idxs) if (i >= 0 && i < this.count) out.push({ ...this.buf.at(i), i });
     return out;
   }
 
   async scanTexts(cb: (i: number, raw: string) => boolean | void, from = 0, to = this.count): Promise<void> {
     this.touch();
     const end = Math.min(to, this.count);
-    for (let i = Math.max(0, from); i < end; i++) if (cb(i, this.entryAt(i).raw) === false) return;
+    for (let i = Math.max(0, from); i < end; i++) if (cb(i, this.buf.at(i).raw) === false) return;
   }
 
   async close() {
-    this.entries = [];
-    this.entryBytes = [];
-    this.entryRawBytes = [];
-    this.head = 0;
-    this.retainedBytes = 0;
+    this.buf.clear();
     this.firstLines = [];
     this.firstLineBytes = 0;
   }
@@ -1220,14 +1088,8 @@ export class RemoteSource extends BaseSource {
   readonly kind = 'remote' as const;
   // Mutable: the display name is refined from the peer's source info on load.
   name: string;
-  private entries: EntryOut[] = [];
+  private buf: EntryBuffer;
   private peerFormat = 'plain';
-  private threadSet = new Set<string>();
-  private loggerSet = new Set<string>();
-  private threadCounts = new Map<string, number>();
-  private loggerCounts = new Map<string, number>();
-  private threads: string[] = [];
-  private loggers: string[] = [];
   private ws: WebSocket | null = null;
   // Entry count on the peer as of the last successful sync; append frames are
   // validated against it (a length-only check can't tell capped tails apart).
@@ -1251,6 +1113,8 @@ export class RemoteSource extends BaseSource {
   ) {
     super();
     this.name = name;
+    // Exact cap (no headroom): keeps precisely the newest maxEntries.
+    this.buf = new EntryBuffer(this.stats, { maxEntries, maxBytes: 0, headroom: false }, 'remote entry');
   }
 
   // Validates the peer address and performs the initial load, then starts
@@ -1284,70 +1148,36 @@ export class RemoteSource extends BaseSource {
   }
 
   get count() {
-    return this.entries.length;
+    return this.buf.count;
   }
   get formatName() {
     return this.peerFormat;
   }
   get threadList() {
-    return this.threads;
+    return this.buf.threads;
   }
   get loggerList() {
-    return this.loggers;
+    return this.buf.loggers;
   }
   get connected() {
     return this.synced && this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }
 
-  private entryAt(i: number): EntryOut {
-    const entry = this.entries[i];
-    if (!entry) throw new RangeError(`remote entry index out of range: ${i}`);
-    return entry;
+  describe() {
+    return { remote: { url: this.remoteUrl, source: this.remoteSourceId }, connected: this.connected };
   }
 
   levelAt(i: number) {
-    return this.entryAt(i).lv;
+    return this.buf.at(i).lv;
   }
   threadAt(i: number) {
-    return this.entryAt(i).th;
+    return this.buf.at(i).th;
   }
   loggerAt(i: number) {
-    return this.entryAt(i).lg;
+    return this.buf.at(i).lg;
   }
   timeAt(i: number) {
-    return this.entryAt(i).t;
-  }
-
-  private track(e: EntryOut) {
-    this.threadCounts.set(e.th, (this.threadCounts.get(e.th) ?? 0) + 1);
-    if (!this.threadSet.has(e.th)) {
-      this.threadSet.add(e.th);
-      this.threads.push(e.th);
-    }
-    this.loggerCounts.set(e.lg, (this.loggerCounts.get(e.lg) ?? 0) + 1);
-    if (!this.loggerSet.has(e.lg)) {
-      this.loggerSet.add(e.lg);
-      this.loggers.push(e.lg);
-    }
-    this.stats[e.lv]++;
-  }
-
-  private untrackMeta(v: string, set: Set<string>, counts: Map<string, number>, list: string[]) {
-    const n = (counts.get(v) ?? 1) - 1;
-    if (n > 0) {
-      counts.set(v, n);
-      return;
-    }
-    counts.delete(v);
-    set.delete(v);
-    const i = list.indexOf(v);
-    if (i !== -1) list.splice(i, 1);
-  }
-
-  private untrack(e: EntryOut) {
-    this.stats[e.lv]--;
-    this.untrackMeta(e.th, this.threadSet, this.threadCounts, this.threads);
-    this.untrackMeta(e.lg, this.loggerSet, this.loggerCounts, this.loggers);
+    return this.buf.at(i).t;
   }
 
   // Drops peer-side fields that would be stale locally (indices, elapsed).
@@ -1355,31 +1185,9 @@ export class RemoteSource extends BaseSource {
     return { i: 0, t: e.t || 0, lv: e.lv | 0, th: e.th || '', lg: e.lg || '', msg: e.msg || '', raw: e.raw || '' };
   }
 
-  // Evicts the oldest entries once the cap is crossed. Returns true when
-  // anything was dropped — indices rebased, so callers must emit a reset.
-  private enforceCap(): boolean {
-    if (this.maxEntries <= 0 || this.entries.length <= this.maxEntries) return false;
-    const drop = this.entries.length - this.maxEntries;
-    for (let k = 0; k < drop; k++) this.untrack(this.entries[k]);
-    this.entries.splice(0, drop);
-    return true;
-  }
-
   private replaceAll(entries: EntryOut[]) {
-    this.entries = [];
-    this.threadSet.clear();
-    this.loggerSet.clear();
-    this.threadCounts.clear();
-    this.loggerCounts.clear();
-    this.threads = [];
-    this.loggers = [];
-    this.stats = [0, 0, 0, 0, 0, 0];
-    for (const e of entries) {
-      const entry = this.normalize(e);
-      this.entries.push(entry);
-      this.track(entry);
-    }
-    this.enforceCap();
+    this.buf.replaceAll(entries.map((e) => this.normalize(e)));
+    this.buf.enforceRetention();
   }
 
   private peerFetch(pathname: string): Promise<Response> {
@@ -1442,7 +1250,7 @@ export class RemoteSource extends BaseSource {
     // entries, or a peer-side eviction — means a full reload.
     const before = count - added;
     const expectedTail = this.maxEntries > 0 ? Math.min(before, this.maxEntries) : before;
-    if (before < 0 || this.peerCount !== before || this.entries.length !== expectedTail) {
+    if (before < 0 || this.peerCount !== before || this.count !== expectedTail) {
       return this.reloadAndEmit();
     }
     return (async () => {
@@ -1451,16 +1259,15 @@ export class RemoteSource extends BaseSource {
         await this.reloadAndEmit();
         return;
       }
-      const startIdx = this.entries.length;
+      const startIdx = this.count;
       const addedEntries: EntryOut[] = [];
       for (const e of fetched) {
         const entry = this.normalize(e);
-        this.entries.push(entry);
-        this.track(entry);
+        this.buf.push(entry);
         addedEntries.push(entry);
       }
       this.peerCount = count;
-      if (this.enforceCap()) {
+      if (this.buf.enforceRetention()) {
         this.emit('reset');
         return;
       }
@@ -1526,13 +1333,13 @@ export class RemoteSource extends BaseSource {
 
   async getEntries(idxs: number[]): Promise<EntryOut[]> {
     const out: EntryOut[] = [];
-    for (const i of idxs) if (i >= 0 && i < this.count) out.push({ ...this.entryAt(i), i });
+    for (const i of idxs) if (i >= 0 && i < this.count) out.push({ ...this.buf.at(i), i });
     return out;
   }
 
   async scanTexts(cb: (i: number, raw: string) => boolean | void, from = 0, to = this.count): Promise<void> {
     const end = Math.min(to, this.count);
-    for (let i = Math.max(0, from); i < end; i++) if (cb(i, this.entryAt(i).raw) === false) return;
+    for (let i = Math.max(0, from); i < end; i++) if (cb(i, this.buf.at(i).raw) === false) return;
   }
 
   async close() {

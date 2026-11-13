@@ -1,4 +1,5 @@
-import { AppendEvent, BaseSource, Criteria, EntryOut, matcherFor, MergedSource, StreamSource } from './sources';
+import { matcherFor, StreamSource } from './sources';
+import type { AppendEvent, Criteria, EntryOut, LogSource } from './source-api';
 import { DEFAULTS } from './config';
 import { StreamSpooler } from './spool';
 
@@ -90,7 +91,7 @@ export function messageTemplate(msg: string): string {
 }
 
 export class Store {
-  sources = new Map<string, BaseSource>();
+  sources = new Map<string, LogSource>();
   filters = new Map<string, FilterEntry>();
   rules = new Map<string, RuleEntry>();
   bookmarks = new Map<string, Set<number>>(); // source id -> global entry indices
@@ -181,7 +182,7 @@ export class Store {
   // Minimap buckets cover view-index ranges [b*n/B, (b+1)*n/B), so any append
   // shifts every boundary — the result is cached but recomputed whenever the
   // row count, epoch, or bookmarks change (an idle tail polls hit the cache).
-  minimapFor(src: BaseSource, f: FilterEntry | null | undefined, buckets: number) {
+  minimapFor(src: LogSource, f: FilterEntry | null | undefined, buckets: number) {
     const n = f ? f.indices.length : src.count;
     const stamp = `${this.sourceEpoch(src.id)}:${n}:${this.bookmarkVersion(src.id)}`;
     const key = `${src.id}|${f?.id ?? ''}|${buckets}`;
@@ -212,7 +213,7 @@ export class Store {
   // Report aggregates are folded forward on append: new rows join the cached
   // histogram/top counters as long as they don't extend the time range (which
   // would move every bucket boundary and forces a full recompute).
-  reportFor(src: BaseSource, f: FilterEntry | null | undefined, buckets: number) {
+  reportFor(src: LogSource, f: FilterEntry | null | undefined, buckets: number) {
     const key = `${src.id}|${f?.id ?? ''}|${buckets}`;
     const prev = this.reportQueues.get(key) ?? Promise.resolve();
     const next = prev.then(() => this.computeReport(src, f, buckets, key));
@@ -223,7 +224,7 @@ export class Store {
     return next;
   }
 
-  private async computeReport(src: BaseSource, f: FilterEntry | null | undefined, buckets: number, key: string) {
+  private async computeReport(src: LogSource, f: FilterEntry | null | undefined, buckets: number, key: string) {
     const n = f ? f.indices.length : src.count;
     const epoch = this.sourceEpoch(src.id);
     const at = (k: number) => (f ? f.indices[k] : k);
@@ -318,7 +319,7 @@ export class Store {
     };
   }
 
-  addSource(src: BaseSource, filePath?: string) {
+  addSource(src: LogSource, filePath?: string) {
     this.sources.set(src.id, src);
     if (filePath) this.byPath.set(filePath, src.id);
     src.on('append', (ev: AppendEvent) => {
@@ -329,7 +330,7 @@ export class Store {
     });
   }
 
-  sourceForPath(filePath: string): BaseSource | undefined {
+  sourceForPath(filePath: string): LogSource | undefined {
     const id = this.byPath.get(filePath);
     return id ? this.sources.get(id) : undefined;
   }
@@ -375,7 +376,7 @@ export class Store {
   // neighbour (previous or next kept entry) with the closer timestamp, falling
   // back to the next one when timestamps are missing. Filter indices are
   // ascending, so this is a binary search.
-  locate(src: BaseSource, f: FilterEntry | null | undefined, i: number): { vi: number; exact: boolean } | null {
+  locate(src: LogSource, f: FilterEntry | null | undefined, i: number): { vi: number; exact: boolean } | null {
     const n = f ? f.indices.length : src.count;
     if (n === 0) return null;
     if (!f) {
@@ -400,7 +401,7 @@ export class Store {
     return { vi: t - tPrev < tNext - t ? lo - 1 : lo, exact: false };
   }
 
-  async createFilter(src: BaseSource, criteria: Criteria): Promise<FilterEntry> {
+  async createFilter(src: LogSource, criteria: Criteria): Promise<FilterEntry> {
     const indices = await src.evalCriteria(criteria);
     const f: FilterEntry = {
       id: 'F' + this.fidSeq++,
@@ -422,7 +423,7 @@ export class Store {
   // Creating a rule scans the existing entries once (like creating a filter):
   // the match count covers them and the bookmark action applies to them.
   // Webhooks deliberately do NOT fire for this creation-time scan.
-  async createRule(src: BaseSource, criteria: Criteria, actions: RuleActions, name?: string): Promise<RuleEntry> {
+  async createRule(src: LogSource, criteria: Criteria, actions: RuleActions, name?: string): Promise<RuleEntry> {
     if (this.rulesFor(src.id).length >= MAX_RULES_PER_SOURCE) throw new RuleLimitError(MAX_RULES_PER_SOURCE);
     const indices = await src.evalCriteria(criteria);
     const rule: RuleEntry = {
@@ -455,7 +456,7 @@ export class Store {
     if (!src) return;
     // Merged views depending on this source must go first.
     for (const other of [...this.sources.values()]) {
-      if (other instanceof MergedSource && other.childIds.includes(id)) await this.removeSource(other.id);
+      if (other.dependsOn?.().includes(id)) await this.removeSource(other.id);
     }
     this.sources.delete(id);
     this.bookmarks.delete(id);
@@ -474,7 +475,7 @@ export class Store {
   // carry parsed entries and match in memory, large ones re-evaluate just the
   // appended range. Webhook delivery is fire-and-forget; a slow or failing
   // endpoint never delays the append path.
-  private async applyRules(src: BaseSource, ev: AppendEvent) {
+  private async applyRules(src: LogSource, ev: AppendEvent) {
     for (const r of this.rules.values()) {
       if (r.sourceId !== src.id) continue;
       let matched: EntryOut[] = [];
@@ -492,7 +493,7 @@ export class Store {
     }
   }
 
-  private fireWebhook(rule: RuleEntry, src: BaseSource, matched: EntryOut[]) {
+  private fireWebhook(rule: RuleEntry, src: LogSource, matched: EntryOut[]) {
     const url = rule.actions.webhook;
     if (!url) return;
     const payload = {
@@ -511,7 +512,7 @@ export class Store {
     });
   }
 
-  private async handleAppend(src: BaseSource, ev: AppendEvent) {
+  private async handleAppend(src: LogSource, ev: AppendEvent) {
     const filterUpdates: Record<string, { count: number; stats: number[] }> = {};
     for (const f of this.filters.values()) {
       if (f.sourceId !== src.id) continue;
@@ -545,7 +546,7 @@ export class Store {
     });
   }
 
-  private async handleReset(src: BaseSource) {
+  private async handleReset(src: LogSource) {
     // Resets can rebase source indices (file truncation or stream retention),
     // so old bookmark positions are no longer meaningful.
     this.bookmarks.delete(src.id);
