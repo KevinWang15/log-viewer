@@ -93,6 +93,11 @@ export const nextBookmark = (id: string, from: number, dir: 'next' | 'prev', fil
       (filterId ? '&filter=' + encodeURIComponent(filterId) : '')
   );
 
+export const locate = (id: string, i: number, filterId?: string | null) =>
+  req<{ vi: number | null; exact: boolean }>(
+    `/api/logs/${encodeURIComponent(id)}/locate?i=${i}` + (filterId ? '&filter=' + encodeURIComponent(filterId) : '')
+  );
+
 export const search = (id: string, q: string, from: number, dir: 'next' | 'prev', filterId?: string | null) =>
   req<{ vi: number | null; capped?: boolean }>(
     `/api/logs/${encodeURIComponent(id)}/search?q=${encodeURIComponent(q)}&from=${from}&dir=${dir}` +

@@ -102,3 +102,28 @@ test('rules are capped per source', async () => {
   assert.equal(store.rulesFor('s:capped').length, MAX_RULES_PER_SOURCE);
   assert.equal(store.rulesFor('s:other').length, 1);
 });
+
+test('locate maps an entry to the same or nearest-in-time row of a filtered view', async () => {
+  const store = new Store();
+  const src = store.getOrCreateStream('loc');
+  const t0 = Date.parse('2026-01-01T00:00:00Z');
+  // Entry index: 0 INFO@0s, 1 ERROR@1s, 2 INFO@2s, 3 INFO@9s, 4 ERROR@10s
+  src.appendEntries([
+    { time: t0, level: 'INFO', message: 'a' },
+    { time: t0 + 1000, level: 'ERROR', message: 'b' },
+    { time: t0 + 2000, level: 'INFO', message: 'c' },
+    { time: t0 + 9000, level: 'INFO', message: 'd' },
+    { time: t0 + 10000, level: 'ERROR', message: 'e' },
+  ]);
+  const errors = await store.createFilter(src, { levels: [4] });
+  assert.deepEqual(errors.indices, [1, 4]);
+
+  assert.deepEqual(store.locate(src, errors, 4), { vi: 1, exact: true }, 'kept entry maps exactly');
+  assert.deepEqual(store.locate(src, errors, 2), { vi: 0, exact: false }, '2s is closer to 1s than to 10s');
+  assert.deepEqual(store.locate(src, errors, 3), { vi: 1, exact: false }, '9s is closer to 10s than to 1s');
+  assert.deepEqual(store.locate(src, errors, 0), { vi: 0, exact: false }, 'before the first kept entry');
+  assert.deepEqual(store.locate(src, null, 3), { vi: 3, exact: true }, 'unfiltered view is the identity');
+
+  const none = await store.createFilter(src, { levels: [5] });
+  assert.equal(store.locate(src, none, 2), null, 'empty view has no position');
+});

@@ -197,3 +197,47 @@ test('compilePattern rejects invalid patterns', () => {
   assert.throws(() => compilePattern('no specifiers here'));
   assert.throws(() => compilePattern('%m' + ' x'.repeat(500)));
 });
+
+// The pre-fast-path implementation, kept as the reference.
+function referenceParseTimestamp(s?: string): number {
+  if (!s) return 0;
+  let v = s.trim().replace(',', '.');
+  const timeOnly = /^(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?$/.exec(v);
+  if (timeOnly) {
+    const ms = timeOnly[4] ? Number((timeOnly[4] + '00').slice(0, 3)) : 0;
+    return ((+timeOnly[1] * 60 + +timeOnly[2]) * 60 + +timeOnly[3]) * 1000 + ms;
+  }
+  v = v.replace(/\//g, '-');
+  let t = Date.parse(v.replace(' ', 'T'));
+  if (Number.isNaN(t)) t = Date.parse(v);
+  if (Number.isNaN(t)) {
+    const asNum = Number(s);
+    if (Number.isFinite(asNum) && asNum > 1e9) return asNum > 1e12 ? asNum : asNum * 1000;
+    return 0;
+  }
+  return t;
+}
+
+test('parseTimestamp fast path matches the general parser', () => {
+  const samples: string[] = [
+    '2026-07-13 10:00:00', '2026-07-13T10:00:00', '2026-07-13 10:00:00.1', '2026-07-13 10:00:00,12',
+    '2026-07-13 10:00:00.123', '2026-07-13 10:00:00.123456', '2026-07-13 23:59:59.999',
+    // Invalid values must fall through and behave exactly as before.
+    '2026-07-13 10:00:60', '2026-13-01 10:00:00', '2026-02-30 10:00:00', '2026-07-13 24:00:00',
+    '2026-07-13 10:61:00', '2026-07-13 10:00:00.', '2026-07-13 10:00:00.1234567', '2026-07-13 10:00:00Z',
+    '2026-07-13 10:00:00+02:00', '2026/07/13 10:00:00', ' 2026-07-13 10:00:00', '10:00:00.5', '1783908000',
+    // DST transitions in common zones (spring-forward gap, fall-back overlap).
+    '2026-03-08 01:59:59.999', '2026-03-08 02:30:00', '2026-03-08 03:00:00', '2026-11-01 01:30:00',
+    '2026-03-29 02:30:00', '2026-10-25 02:30:00', '2026-04-05 01:45:00', '2026-10-04 02:15:00',
+  ];
+  // Plus a sweep of sequential stamps across minute/hour/day boundaries.
+  const base = Date.UTC(2026, 2, 7, 22, 0, 0);
+  for (let k = 0; k < 5000; k++) {
+    const d = new Date(base + k * 37_123);
+    const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+    samples.push(
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`
+    );
+  }
+  for (const s of samples) assert.equal(parseTimestamp(s), referenceParseTimestamp(s), s);
+});

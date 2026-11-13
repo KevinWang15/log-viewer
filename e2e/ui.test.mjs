@@ -52,7 +52,7 @@ await page.screenshot({ path: SHOT + '/main.png' });
 for (const i of [0, 1, 2, 5]) await page.click(`#tb-lv-${i}`); // leave WARN+ERROR
 await new Promise((r) => setTimeout(r, 800));
 const filteredStatus = await page.$eval('#status-right', (n) => n.textContent);
-check('level filter applied', /\(filtered\)/.test(filteredStatus), filteredStatus.trim());
+check('level filter applied', /filtered/.test(filteredStatus), filteredStatus.trim());
 const treeText = await page.$eval('#tree', (n) => n.textContent);
 check('filter shown in tree', treeText.includes('WARN, ERROR'), '');
 

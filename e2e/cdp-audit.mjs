@@ -332,6 +332,8 @@ async function auditDesktop(browser) {
   check(scenario, 'Escape closes highlight rules', !(await page.$('#rules-modal')));
   await page.click('#tb-clear');
   await page.waitForFunction(() => !(document.querySelector('#status-right')?.textContent || '').includes('filtered'));
+  // Clearing a filter keeps the current position; go back to the start.
+  await page.click('#tb-top');
   await page.waitForFunction(() => !!document.querySelector('.lg-row[data-vi="3"]:not(.lg-loading)'));
   await page.$eval('.lg-row[data-vi="3"]', (row) => row.click());
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));

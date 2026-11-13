@@ -3,7 +3,7 @@
 // Run:  npm run build -w server && node server/test/perf.bench.mjs
 //   (or from the repo root: `npm run bench`)
 //
-// Generates a synthetic log (~200k entries, ~10% multiline continuations) in a
+// Generates a synthetic log (~200k entries by default, ~10% multiline continuations) in a
 // temp dir, then measures against the built server (dist/):
 //   - indexing throughput (MB/s)
 //   - filter create time (metadata-only and text-regex)
@@ -22,7 +22,8 @@ import { performance } from 'node:perf_hooks';
 import { FileLogSource } from '../dist/sources.js';
 import { Store } from '../dist/store.js';
 
-const ENTRIES = 200_000;
+// BENCH_ENTRIES overrides the size, e.g. BENCH_ENTRIES=2000000 for a ~200 MB file.
+const ENTRIES = Number(process.env.BENCH_ENTRIES) || 200_000;
 const APPEND_ENTRIES = 5_000;
 const LEVELS = ['TRACE', 'DEBUG', 'INFO', 'INFO', 'INFO', 'WARN', 'ERROR'];
 
@@ -142,7 +143,7 @@ async function httpTimings() {
     const { id } = await opened.json();
 
     // Entries page: a 200-entry window mid-file (first fetch is cold-ish).
-    const start = 120_000;
+    const start = Math.floor(ENTRIES * 0.6);
     let t0 = performance.now();
     let res = await fetch(`${base}/api/logs/${id}/entries?start=${start}&count=200`);
     let page = await res.json();

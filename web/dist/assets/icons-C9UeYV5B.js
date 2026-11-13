@@ -1,0 +1,157 @@
+var x=Object.defineProperty;var k=(o,t,e)=>t in o?x(o,t,{enumerable:!0,configurable:!0,writable:!0,value:e}):o[t]=e;var l=(o,t,e)=>k(o,typeof t!="symbol"?t+"":t,e);(function(){const t=document.createElement("link").relList;if(t&&t.supports&&t.supports("modulepreload"))return;for(const i of document.querySelectorAll('link[rel="modulepreload"]'))s(i);new MutationObserver(i=>{for(const r of i)if(r.type==="childList")for(const a of r.addedNodes)a.tagName==="LINK"&&a.rel==="modulepreload"&&s(a)}).observe(document,{childList:!0,subtree:!0});function e(i){const r={};return i.integrity&&(r.integrity=i.integrity),i.referrerPolicy&&(r.referrerPolicy=i.referrerPolicy),i.crossOrigin==="use-credentials"?r.credentials="include":i.crossOrigin==="anonymous"?r.credentials="omit":r.credentials="same-origin",r}function s(i){if(i.ep)return;i.ep=!0;const r=e(i);fetch(i.href,r)}})();let m="",f="";function lt(o){m=o.replace(/\/$/,"")}function ct(o){f=o}function b(o){return f?o+(o.includes("?")?"&":"?")+"viewKey="+encodeURIComponent(f):o}async function d(o,t){const e=await fetch(m+b(o),t);if(!e.ok){let s=e.statusText;try{s=(await e.json()).error||s}catch{}const i=new Error(s);throw i.status=e.status,i}return e.json()}const w=o=>({method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(o)}),ht=o=>d("/api/browse"+(o?"?path="+encodeURIComponent(o):"")),dt=o=>d("/api/logs/open",w({path:o})),pt=()=>d("/api/logs"),gt=o=>d("/api/logs/"+encodeURIComponent(o),{method:"DELETE"}),ut=(o,t)=>d(`/api/logs/${encodeURIComponent(o)}/filters`,w({criteria:t})),wt=(o,t)=>d(`/api/logs/${encodeURIComponent(o)}/filters/${encodeURIComponent(t)}`,{method:"DELETE"}),ft=(o,t,e,s)=>d(`/api/logs/${encodeURIComponent(o)}/entries?start=${t}&count=${e}`+(s?"&filter="+encodeURIComponent(s):"")),mt=(o,t,e)=>d(`/api/logs/${encodeURIComponent(o)}/minimap?buckets=${t}`+(e?"&filter="+encodeURIComponent(e):"")),vt=o=>d("/api/v1/streams/"+encodeURIComponent(o)),yt=(o,t,e)=>d("/api/logs/open",w({path:o,start:t,end:e})),Mt=(o,t)=>d("/api/logs/merge",w({ids:o,name:t})),bt=(o,t)=>d(`/api/logs/${encodeURIComponent(o)}/parser`,w({pattern:t})),$t=o=>d(`/api/logs/${encodeURIComponent(o)}/bookmarks`),xt=(o,t)=>d(`/api/logs/${encodeURIComponent(o)}/bookmarks`,{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({index:t})}),kt=(o,t,e,s)=>d(`/api/logs/${encodeURIComponent(o)}/bookmarks/next?from=${t}&dir=${e}`+(s?"&filter="+encodeURIComponent(s):"")),Et=(o,t,e)=>d(`/api/logs/${encodeURIComponent(o)}/locate?i=${t}`+(e?"&filter="+encodeURIComponent(e):"")),Ct=(o,t,e,s,i)=>d(`/api/logs/${encodeURIComponent(o)}/search?q=${encodeURIComponent(t)}&from=${e}&dir=${s}`+(i?"&filter="+encodeURIComponent(i):"")),Lt=(o,t,e)=>d(`/api/logs/${encodeURIComponent(o)}/correlate?i=${t}`),St=(o,t)=>d(`/api/logs/${encodeURIComponent(o)}/report?buckets=80`+(t?"&filter="+encodeURIComponent(t):"")),Ht=(o,t)=>b(`${m}/api/logs/${encodeURIComponent(o)}/export`+(t?"?filter="+encodeURIComponent(t):""));function Rt(o,t=()=>{}){const e=new Set;let s=null,i=!1,r=0,a=null;const n=()=>{const p=new URL((m||"")+"/ws",location.origin);return p.protocol=p.protocol==="https:"?"wss:":"ws:",p.toString()},c=p=>JSON.stringify({type:"sub",id:p,viewKey:f||void 0}),h=()=>{i||(t(r?"reconnecting":"connecting"),s=new WebSocket(n()),s.onopen=()=>{r=0,t("connected");for(const p of e)s==null||s.send(c(p))},s.onmessage=p=>{try{o(JSON.parse(p.data))}catch{}},s.onclose=()=>{if(s=null,!i){t("reconnecting");const p=Math.min(1e4,500*2**Math.min(r++,5));a=window.setTimeout(h,p)}})};return h(),{sub(p){e.add(p),(s==null?void 0:s.readyState)===WebSocket.OPEN&&s.send(c(p))},unsub(p){e.delete(p),(s==null?void 0:s.readyState)===WebSocket.OPEN&&s.send(JSON.stringify({type:"unsub",id:p}))},close(){i=!0,a!==null&&window.clearTimeout(a),s==null||s.close(),t("closed")}}}const E=["TRACE","DEBUG","INFO","WARN","ERROR","FATAL"],Vt=["#94a3b8","#64748b","#3b82f6","#f59e0b","#ef4444","#991b1b"];function u(o){return o.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}function g(o,t){return String(o).padStart(t,"0")}const $=new Date(0);function y(o){if(!o)return"";if(o<864e5){const e=o%1e3,s=Math.floor(o/1e3);return`${g(Math.floor(s/3600),2)}:${g(Math.floor(s/60)%60,2)}:${g(s%60,2)}.${g(e,3)}`}const t=$;return t.setTime(o),`${g(t.getHours(),2)}:${g(t.getMinutes(),2)}:${g(t.getSeconds(),2)}.${g(t.getMilliseconds(),3)}`}function C(o){if(!o)return"";if(o<864e5)return y(o);const t=$;return t.setTime(o),`${`${t.getFullYear()}-${g(t.getMonth()+1,2)}-${g(t.getDate(),2)}`} ${y(o)}`}function L(o){if(o==null)return"";const t=Math.abs(o),e=o<0?"-":"+";if(t<1e3)return`${e}${t}ms`;if(t<6e4)return`${e}${(t/1e3).toFixed(1).replace(/\.0$/,"")}s`;const s=Math.floor(t/6e4),i=Math.round(t%6e4/1e3);return`${o<0?"-":""}${s}m ${i}s`}function At(o){return o<1024?o+" B":o<1024*1024?(o/1024).toFixed(1)+" KB":o<1024*1024*1024?(o/1024/1024).toFixed(1)+" MB":(o/1024/1024/1024).toFixed(2)+" GB"}function Ft(o){return o.toLocaleString("en-US")}function Tt(o,t){let e=0,s=null;return(...i)=>{const r=Date.now(),a=()=>{e=Date.now(),s=null,o(...i)};r-e>=t?a():s||(s=setTimeout(a,t-(r-e)))}}const M="lvw-col-widths";class Pt{constructor(t){l(this,"pageSize",200);l(this,"maxCachedPages",20);l(this,"rowH",21);l(this,"follow",!1);l(this,"showLogger",!0);l(this,"showElapsed",!1);l(this,"bookmarks",new Set);l(this,"onSelect",null);l(this,"onContextMenu",null);l(this,"fetchPage",null);l(this,"onFollowChange",null);l(this,"viewport");l(this,"root");l(this,"spacer");l(this,"rowsEl");l(this,"headerEl");l(this,"count",0);l(this,"gen",0);l(this,"cache",new Map);l(this,"stalePages",new Set);l(this,"refreshing",new Set);l(this,"selectedVi",-1);l(this,"selectedEntry",null);l(this,"rules",[]);l(this,"rawLowerCache",new WeakMap);l(this,"widths",{time:105,el:70,th:100,lv:72,lg:110});l(this,"renderFrame",0);l(this,"lastFirst",-1);l(this,"lastEnd",-1);l(this,"rows",[]);l(this,"rowsFirst",0);l(this,"template",document.createElement("template"));l(this,"stickPending",!1);try{const e=JSON.parse(localStorage.getItem(M)||"null");e&&(this.widths={...this.widths,...e})}catch{}t.classList.add("lg-root"),t.tabIndex=0,t.setAttribute("role","grid"),t.setAttribute("aria-label","Log entries"),t.setAttribute("aria-rowcount","1"),t.setAttribute("aria-colcount","7"),t.innerHTML=`
+      <div class="lg-header lg-cols" role="row" aria-rowindex="1">
+        <span class="c-bm" role="columnheader" aria-label="Bookmark"></span>
+        <span class="c-time" role="columnheader">Time<i class="col-rs" data-col="time"></i></span>
+        <span class="c-el" role="columnheader">Elapsed<i class="col-rs" data-col="el"></i></span>
+        <span class="c-th" role="columnheader">Thread<i class="col-rs" data-col="th"></i></span>
+        <span class="c-lv" role="columnheader">Level<i class="col-rs" data-col="lv"></i></span>
+        <span class="c-lg" role="columnheader">Logger<i class="col-rs" data-col="lg"></i></span>
+        <span class="c-msg" role="columnheader">Message</span>
+      </div>
+      <div class="lg-viewport" role="presentation"><div class="lg-spacer"></div><div class="lg-rows" role="rowgroup"></div></div>`,this.root=t,this.viewport=t.querySelector(".lg-viewport"),this.spacer=t.querySelector(".lg-spacer"),this.rowsEl=t.querySelector(".lg-rows"),this.headerEl=t.querySelector(".lg-header"),this.applyColWidths(t),this.viewport.addEventListener("scroll",()=>{this.syncFollowToScroll(),this.scheduleViewportRender()},{passive:!0}),new ResizeObserver(()=>{this.follow&&this.scrollToBottom(),this.scheduleViewportRender()}).observe(this.viewport),this.rowsEl.addEventListener("click",e=>{const s=e.target.closest(".lg-row");!s||s.dataset.vi===void 0||(this.selectVi(Number(s.dataset.vi)),this.root.focus())}),this.rowsEl.addEventListener("contextmenu",e=>{const s=e.target.closest(".lg-row");if(!s||s.dataset.vi===void 0||!this.onContextMenu)return;e.preventDefault();const i=Number(s.dataset.vi);this.selectVi(i),this.root.focus(),this.onContextMenu(i,this.selectedEntry,e.clientX,e.clientY)}),this.root.addEventListener("keydown",e=>this.onKey(e)),this.headerEl.addEventListener("mousedown",e=>this.onColResizeStart(e))}applyColWidths(t){const e=t??this.viewport.parentElement,s=this.showLogger?`${this.widths.lg}px`:"0px";e.classList.toggle("lg-no-el",!this.showElapsed);const i=["18px",`${this.widths.time}px`,...this.showElapsed?[`${this.widths.el}px`]:[],`${this.widths.th}px`,`${this.widths.lv}px`,s,"1fr"];e.style.setProperty("--lg-cols",i.join(" "))}syncFollowToScroll(){var s;const e=this.viewport.scrollHeight-this.viewport.clientHeight-this.viewport.scrollTop<=this.rowH/2;e!==this.follow&&(this.follow=e,(s=this.onFollowChange)==null||s.call(this,e))}scheduleViewportRender(){this.renderFrame||(this.renderFrame=requestAnimationFrame(()=>{this.renderFrame=0,this.render(!1)}))}onColResizeStart(t){const e=t.target;if(!e.classList.contains("col-rs"))return;t.preventDefault();const s=e.dataset.col,i=t.clientX,r=this.widths[s],a=c=>{this.widths[s]=Math.max(40,r+(c.clientX-i)),this.applyColWidths()},n=()=>{document.removeEventListener("mousemove",a),document.removeEventListener("mouseup",n),localStorage.setItem(M,JSON.stringify(this.widths))};document.addEventListener("mousemove",a),document.addEventListener("mouseup",n)}onKey(t){const e=Math.max(1,Math.floor(this.viewport.clientHeight/this.rowH)-1);let s=!0;switch(t.key){case"ArrowDown":this.selectVi(Math.min(this.count-1,this.selectedVi+1));break;case"ArrowUp":this.selectVi(Math.max(0,this.selectedVi-1));break;case"PageDown":this.selectVi(Math.min(this.count-1,this.selectedVi+e));break;case"PageUp":this.selectVi(Math.max(0,this.selectedVi-e));break;case"Home":this.selectVi(0);break;case"End":this.selectVi(this.count-1);break;case"ContextMenu":case"F10":{if(t.key==="F10"&&!t.shiftKey){s=!1;break}if(!this.onContextMenu||this.selectedVi<0||!this.selectedEntry){s=!1;break}const i=this.rowsEl.querySelector(`.lg-row[data-vi="${this.selectedVi}"]`),r=(i==null?void 0:i.getBoundingClientRect())??this.root.getBoundingClientRect();this.onContextMenu(this.selectedVi,this.selectedEntry,r.left+24,r.top+this.rowH);break}default:s=!1}s&&t.preventDefault()}get total(){return this.count}get firstVisible(){return Math.max(0,Math.floor(this.viewport.scrollTop/this.rowH))}get selection(){return{vi:this.selectedVi,entry:this.selectedEntry}}setRules(t){this.rules=t.filter(e=>e.enabled&&(e.text||e.level!==null)).map(e=>{const s=e.text?e.text.toLowerCase():null,i=e.level??null,r=(e.fg?`color:${e.fg};`:"")+(e.bg?`background:${e.bg};`:"")+(e.bold?"font-weight:700;":"");return{test:a=>(i===null||a.lv===i)&&(!s||this.rawLower(a).includes(s)),style:r}}),this.invalidateRows(),this.render()}rawLower(t){let e=this.rawLowerCache.get(t);return e===void 0&&(e=t.raw.toLowerCase(),this.rawLowerCache.set(t,e)),e}setShowLogger(t){this.showLogger=t,this.applyColWidths(),this.render()}setShowElapsed(t){this.showElapsed=t,this.applyColWidths(),this.render()}captureAnchor(){const t=this.viewport.scrollTop,e=this.viewport.clientHeight;if(this.selectedEntry){const r=this.selectedVi*this.rowH-t,a=r>-this.rowH&&r<e;return{i:this.selectedEntry.i,offset:a?r:(e-this.rowH)/2,select:!0}}if(this.follow)return null;const s=this.firstVisible,i=this.entryAt(s);return i?{i:i.i,offset:s*this.rowH-t,select:!1}:null}restoreAnchor(t,e){this.viewport.scrollTop=Math.max(0,t*this.rowH-e.offset),e.select?this.selectVi(t):this.render()}reset(t){var e;this.gen++,this.cache.clear(),this.stalePages.clear(),this.refreshing.clear(),this.selectedVi=-1,this.selectedEntry=null,(e=this.onSelect)==null||e.call(this,null),this.count=t,this.lastFirst=-1,this.lastEnd=-1,this.stickPending=!1,this.invalidateRows(),this.spacer.style.height=t*this.rowH+"px",this.root.setAttribute("aria-rowcount",String(t+1)),this.root.removeAttribute("aria-activedescendant"),this.viewport.scrollTop=0,this.follow&&this.scrollToBottom(),this.render()}setCount(t){if(t!==this.count){if(t<this.count){this.reset(t);return}if(this.count>0&&this.count%this.pageSize!==0){const e=Math.floor((this.count-1)/this.pageSize);this.cache.get(e)==="loading"?this.cache.delete(e):this.cache.has(e)&&this.stalePages.add(e)}this.count=t,this.spacer.style.height=t*this.rowH+"px",this.root.setAttribute("aria-rowcount",String(t+1)),this.follow&&(this.bottomLoaded()?this.scrollToBottom():this.stickPending=!0),this.render()}}bottomLoaded(){const t=Math.ceil(this.viewport.clientHeight/this.rowH)+2;let e=!0;for(let s=Math.max(0,this.count-t);s<this.count;s++)this.entryAt(s)||(e=!1);return e}scrollToBottom(){this.viewport.scrollTop=this.viewport.scrollHeight}scrollToIndex(t){this.viewport.scrollTop=Math.max(0,t*this.rowH-this.viewport.clientHeight/2)}isAtBottom(){return this.viewport.scrollTop+this.viewport.clientHeight>=this.viewport.scrollHeight-this.rowH*2}selectVi(t){var r;if(t<0||t>=this.count)return;this.selectedVi=t,this.root.setAttribute("aria-activedescendant",`lg-row-${t}`),this.selectedEntry=null;const e=t*this.rowH;(e<this.viewport.scrollTop||e+this.rowH>this.viewport.scrollTop+this.viewport.clientHeight)&&this.scrollToIndex(t);const s=Math.floor(t/this.pageSize),i=this.cachedPage(s);Array.isArray(i)&&(this.selectedEntry=i[t%this.pageSize]??null,(r=this.onSelect)==null||r.call(this,this.selectedEntry)),this.render()}entryAt(t){const e=Math.floor(t/this.pageSize),s=this.cachedPage(e);return s===void 0?(this.ensurePage(e),null):s==="loading"?null:(this.stalePages.has(e)&&this.refreshPage(e),s[t%this.pageSize]??null)}async ensurePage(t){if(!this.fetchPage||this.cache.has(t))return;this.cachePage(t,"loading");const e=this.gen;try{const s=await this.fetchPage(t*this.pageSize,this.pageSize);if(e!==this.gen)return;this.cachePage(t,s),this.pageArrived(t,s)}catch{e===this.gen&&this.cache.delete(t)}}async refreshPage(t){if(!this.fetchPage||this.refreshing.has(t))return;this.stalePages.delete(t),this.refreshing.add(t);const e=this.gen,s=this.cache.get(t),i=Array.isArray(s)?s.length:0,r=i>=2?i-2:0;try{const a=await this.fetchPage(t*this.pageSize+r,this.pageSize-r);if(e!==this.gen||(this.refreshing.delete(t),this.cache.get(t)!==s))return;const n=r&&Array.isArray(s)?s.slice(0,i-1).concat(a.slice(1)):a;this.cachePage(t,n),this.pageArrived(t,n)}catch{if(e!==this.gen)return;this.refreshing.delete(t),this.cache.has(t)&&this.stalePages.add(t)}}pageArrived(t,e){var s;this.selectedVi>=0&&!this.selectedEntry&&Math.floor(this.selectedVi/this.pageSize)===t&&(this.selectedEntry=e[this.selectedVi%this.pageSize]??null,this.selectedEntry&&((s=this.onSelect)==null||s.call(this,this.selectedEntry))),this.stickPending&&this.follow&&this.bottomLoaded()&&(this.stickPending=!1,this.scrollToBottom()),this.render()}cachedPage(t){const e=this.cache.get(t);if(e!==void 0)return this.cache.delete(t),this.cache.set(t,e),e}cachePage(t,e){for(this.cache.delete(t),this.cache.set(t,e);this.cache.size>this.maxCachedPages;){const s=this.cache.keys().next().value;if(s===void 0)break;this.cache.delete(s),this.stalePages.delete(s)}}render(t=!0){const e=this.viewport.clientHeight;let s=Math.floor(this.viewport.scrollTop/this.rowH);s=Math.max(0,Math.min(s,Math.max(0,this.count-1)));const i=Math.min(this.count,s+Math.ceil(e/this.rowH)+2);if(!(!t&&s===this.lastFirst&&i===this.lastEnd)&&(this.lastFirst=s,this.lastEnd=i,this.selectedVi>=s&&this.selectedVi<i?this.root.setAttribute("aria-activedescendant",`lg-row-${this.selectedVi}`):this.root.removeAttribute("aria-activedescendant"),this.rowsEl.style.transform=`translateY(${s*this.rowH}px)`,this.syncRows(s,i),this.count>0)){const r=i-s;this.prefetch(Math.max(0,s-r)),this.prefetch(Math.min(this.count-1,i+r))}}prefetch(t){const e=Math.floor(t/this.pageSize);this.cache.has(e)||this.ensurePage(e)}invalidateRows(){this.rows=[],this.rowsEl.textContent=""}wantRow(t){const e=this.entryAt(t),s=e||Array.isArray(this.cache.get(Math.floor(t/this.pageSize)))?"":"Loading…";return{e,sel:t===this.selectedVi,bm:!!e&&this.bookmarks.has(e.i),label:s}}buildRows(t,e,s){this.template.innerHTML=e.map((r,a)=>{const n=s?s[a]:t+a;return r.e?this.rowHtml(n,r.e):this.placeholderHtml(n,r.label)}).join("");const i=Array.from(this.template.content.children);return e.map((r,a)=>({...r,el:i[a]}))}syncRows(t,e){const s=this.rowsFirst+this.rows.length;if(!this.rows.length||e<=this.rowsFirst||t>=s){const n=[];for(let c=t;c<e;c++)n.push(this.wantRow(c));this.rows=this.buildRows(t,n),this.rowsFirst=t,this.rowsEl.replaceChildren(...this.rows.map(c=>c.el));return}for(;this.rowsFirst<t;)this.rows.shift().el.remove(),this.rowsFirst++;for(;this.rowsFirst+this.rows.length>e;)this.rows.pop().el.remove();const i=[],r=[];for(let n=0;n<this.rows.length;n++){const c=this.rows[n],h=this.wantRow(this.rowsFirst+n);(c.e!==h.e||c.sel!==h.sel||c.bm!==h.bm||c.label!==h.label)&&(i.push(n),r.push(h))}if(i.length){const n=this.buildRows(0,r,i.map(c=>this.rowsFirst+c));i.forEach((c,h)=>{this.rows[c].el.replaceWith(n[h].el),this.rows[c]=n[h]})}if(t<this.rowsFirst){const n=[];for(let h=t;h<this.rowsFirst;h++)n.push(this.wantRow(h));const c=this.buildRows(t,n);this.rowsEl.prepend(...c.map(h=>h.el)),this.rows.unshift(...c),this.rowsFirst=t}const a=this.rowsFirst+this.rows.length;if(a<e){const n=[];for(let h=a;h<e;h++)n.push(this.wantRow(h));const c=this.buildRows(a,n);this.rowsEl.append(...c.map(h=>h.el)),this.rows.push(...c)}}placeholderHtml(t,e){return`<div id="lg-row-${t}" class="lg-row lg-cols lg-loading" style="height:${this.rowH}px" data-vi="${t}" role="row" aria-rowindex="${t+2}"><span class="c-bm" role="gridcell"></span><span class="c-time" role="gridcell"></span><span class="c-el" role="gridcell"></span><span class="c-th" role="gridcell"></span><span class="c-lv" role="gridcell"></span><span class="c-lg" role="gridcell"></span><span class="c-msg" role="gridcell">${e}</span></div>`}rowHtml(t,e){const s=t===this.selectedVi;let i="";if(!s){for(const c of this.rules)if(c.test(e)){i=` style="height:${this.rowH}px;${c.style}"`;break}}i||(i=` style="height:${this.rowH}px"`);const r=this.bookmarks.has(e.i)?'<i class="bm-flag"></i>':"",a=e.raw.includes(`
+`)?'<span class="lg-more">▸</span>':"",n=e.src?` · ${u(e.src)}`:"";return`<div id="lg-row-${t}" class="lg-row lg-cols lv-${e.lv}${s?" lg-sel":""}"${i} data-vi="${t}" role="row" aria-rowindex="${t+2}" aria-selected="${s}"><span class="c-bm" role="gridcell">${r}</span><span class="c-time" role="gridcell" title="${C(e.t)}${n}">${y(e.t)}</span><span class="c-el" role="gridcell">${L(e.elapsed)}</span><span class="c-th" role="gridcell">${u(e.th)}</span><span class="c-lv" role="gridcell"><b class="lv-tag">${E[e.lv]??""}</b></span><span class="c-lg" role="gridcell">${u(e.lg)}</span><span class="c-msg" role="gridcell">${a}${u(e.msg)}</span></div>`}}function S(o){let t=o;const e=t.trim();if(e.startsWith("{")||e.startsWith("["))try{t=JSON.stringify(JSON.parse(e),null,2)}catch{}let s=u(t);return s=s.replace(/(&lt;\/?)([\w:.-]+)((?:\s[^&]*?)?)(\/?&gt;)/g,(i,r,a,n,c)=>`<span class="x-b">${r}</span><span class="x-t">${a}</span><span class="x-a">${n}</span><span class="x-b">${c}</span>`),s=s.replace(/&quot;([\w@$.\- ]+)&quot;(\s*):/g,'<span class="j-k">&quot;$1&quot;</span>$2:'),s=s.replace(/:(\s*)&quot;([^&]*?)&quot;/g,':$1<span class="j-s">&quot;$2&quot;</span>'),s}const v=new WeakMap;function Ut(o,t){if(!(v.has(o)&&v.get(o)===t)){if(v.set(o,t),!t){o.innerHTML='<div class="detail-empty">Select a log entry to see its full text.</div>';return}o.innerHTML=`<pre class="detail-pre">${S(t.raw)}</pre>`}}/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const H=[["path",{d:"M12 17V3"}],["path",{d:"m6 11 6 6 6-6"}],["path",{d:"M19 21H5"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const R=[["path",{d:"M12 5v14"}],["path",{d:"m19 12-7 7-7-7"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const V=[["path",{d:"M5 3h14"}],["path",{d:"m18 13-6-6-6 6"}],["path",{d:"M12 7v14"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const A=[["path",{d:"m5 12 7-7 7 7"}],["path",{d:"M12 19V5"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const F=[["path",{d:"M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const T=[["path",{d:"M3 3v16a2 2 0 0 0 2 2h16"}],["path",{d:"M18 17V9"}],["path",{d:"M13 17V5"}],["path",{d:"M8 17v-3"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const P=[["path",{d:"m6 9 6 6 6-6"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const U=[["path",{d:"m18 15-6-6-6 6"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const O=[["circle",{cx:"12",cy:"12",r:"10"}],["path",{d:"M12 6v6l4 2"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const I=[["path",{d:"M14 3a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1"}],["path",{d:"M19 3a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1"}],["path",{d:"m7 15 3 3"}],["path",{d:"m7 21 3-3H5a2 2 0 0 1-2-2v-2"}],["rect",{x:"14",y:"14",width:"7",height:"7",rx:"1"}],["rect",{x:"3",y:"3",width:"7",height:"7",rx:"1"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const z=[["path",{d:"M12 20v2"}],["path",{d:"M12 2v2"}],["path",{d:"M17 20v2"}],["path",{d:"M17 2v2"}],["path",{d:"M2 12h2"}],["path",{d:"M2 17h2"}],["path",{d:"M2 7h2"}],["path",{d:"M20 12h2"}],["path",{d:"M20 17h2"}],["path",{d:"M20 7h2"}],["path",{d:"M7 20v2"}],["path",{d:"M7 2v2"}],["rect",{x:"4",y:"4",width:"16",height:"16",rx:"2"}],["rect",{x:"8",y:"8",width:"8",height:"8",rx:"1"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const B=[["path",{d:"M12 15V3"}],["path",{d:"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"}],["path",{d:"m7 10 5 5 5-5"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const N=[["path",{d:"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"}],["path",{d:"M14 2v5a1 1 0 0 0 1 1h5"}],["path",{d:"M10 9H8"}],["path",{d:"M16 13H8"}],["path",{d:"M16 17H8"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const D=[["path",{d:"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"}],["path",{d:"M14 2v5a1 1 0 0 0 1 1h5"}],["path",{d:"M12 12v6"}],["path",{d:"m15 15-3-3-3 3"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const q=[["path",{d:"m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const W=[["path",{d:"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"}],["path",{d:"M12 10v6"}],["path",{d:"m9 13 3-3 3 3"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const j=[["path",{d:"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const K=[["path",{d:"M12.531 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14v6a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341l.427-.473"}],["path",{d:"m16.5 3.5 5 5"}],["path",{d:"m21.5 3.5-5 5"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const J=[["path",{d:"M16 5H3"}],["path",{d:"M16 12H3"}],["path",{d:"M9 19H3"}],["path",{d:"m16 16-3 3 3 3"}],["path",{d:"M21 5v12a2 2 0 0 1-2 2h-6"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const _=[["path",{d:"M4 5h16"}],["path",{d:"M4 12h16"}],["path",{d:"M4 19h16"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const G=[["path",{d:"M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"}],["circle",{cx:"13.5",cy:"6.5",r:".5",fill:"currentColor"}],["circle",{cx:"17.5",cy:"10.5",r:".5",fill:"currentColor"}],["circle",{cx:"6.5",cy:"12.5",r:".5",fill:"currentColor"}],["circle",{cx:"8.5",cy:"7.5",r:".5",fill:"currentColor"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const X=[["path",{d:"M12 17v5"}],["path",{d:"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const Y=[["path",{d:"M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const Z=[["path",{d:"M16.247 7.761a6 6 0 0 1 0 8.478"}],["path",{d:"M19.075 4.933a10 10 0 0 1 0 14.134"}],["path",{d:"M4.925 19.067a10 10 0 0 1 0-14.134"}],["path",{d:"M7.753 16.239a6 6 0 0 1 0-8.478"}],["circle",{cx:"12",cy:"12",r:"2"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const Q=[["path",{d:"M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"}],["path",{d:"M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"}],["path",{d:"M7 3v4a1 1 0 0 0 1 1h7"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const tt=[["path",{d:"m21 21-4.34-4.34"}],["circle",{cx:"11",cy:"11",r:"8"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const et=[["path",{d:"M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"}],["circle",{cx:"7.5",cy:"7.5",r:".5",fill:"currentColor"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const st=[["path",{d:"M10 11v6"}],["path",{d:"M14 11v6"}],["path",{d:"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"}],["path",{d:"M3 6h18"}],["path",{d:"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]];/**
+ * @license lucide v1.72.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const ot=[["path",{d:"M18 6 6 18"}],["path",{d:"m6 6 12 12"}]],it={arrowDown:R,arrowUp:A,bookmark:F,bottom:H,chevronDown:P,chevronUp:U,clock:O,close:ot,delete:st,dirUp:W,download:B,file:N,filterClear:K,folder:j,follow:J,load:D,menu:_,merge:I,open:q,palette:G,part:Y,pin:X,report:T,save:Q,search:tt,stream:Z,tag:et,thread:z,top:V},rt='viewBox="68 92 882 882"><polyline points="165,395 283,530 165,664" stroke="#4f46e5" stroke-width="74"/><line x1="362" y1="390" x2="757" y2="390" stroke="#0f172a" stroke-width="66"/><line x1="388" y1="487" x2="698" y2="487" stroke="#f59e0b" stroke-width="60"/><line x1="381" y1="593" x2="625" y2="593" stroke="#4f46e5" stroke-width="54"/><line x1="339" y1="686" x2="522" y2="686" stroke="#4f46e5" stroke-width="54" opacity="0.45"/><circle cx="849" cy="392" r="41" fill="#ef4444"/>',at='viewBox="0 0 32 32"><polyline points="3.5,9.5 9,16 3.5,22.5" stroke="#4f46e5" stroke-width="3.6"/><line x1="13" y1="9.5" x2="24" y2="9.5" stroke="#0f172a" stroke-width="3.4"/><line x1="13" y1="16" x2="22" y2="16" stroke="#f59e0b" stroke-width="3.4"/><line x1="13" y1="22.5" x2="19.5" y2="22.5" stroke="#4f46e5" stroke-width="3.4"/><circle cx="28.5" cy="9.5" r="2.4" fill="#ef4444"/>';function Ot(o=20){return`<svg class="logo-mark" xmlns="http://www.w3.org/2000/svg" width="${o}" height="${o}" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${o<32?at:rt}</svg>`}function It(o,t=16){const e=it[o].map(([s,i])=>{const r=Object.entries(i).map(([a,n])=>`${a}="${n}"`).join(" ");return`<${s} ${r}/>`});return`<svg class="icon" xmlns="http://www.w3.org/2000/svg" width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${e.join("")}</svg>`}export{C as A,gt as B,Ht as C,Ct as D,mt as E,Lt as F,St as G,E as L,ct as a,Vt as b,Pt as c,ut as d,u as e,Et as f,wt as g,vt as h,It as i,ft as j,bt as k,Ot as l,Ft as m,pt as n,dt as o,ht as p,At as q,Ut as r,lt as s,Tt as t,$t as u,Mt as v,Rt as w,kt as x,xt as y,yt as z};

@@ -31,9 +31,9 @@ const SHADOW_CSS =
 :host {
   display: block;
   overflow: hidden;
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
   font-size: 13px;
-  color: #1c1e21;
+  color: var(--text);
   background: #fff;
 }
 :host > #embed-root {

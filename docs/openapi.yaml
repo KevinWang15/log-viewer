@@ -606,6 +606,37 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '401': { $ref: '#/components/responses/ViewKeyRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/logs/{id}/locate:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+      - name: i
+        in: query
+        required: true
+        description: Global entry index (the `i` field of an entry).
+        schema: { type: integer, minimum: 0 }
+      - $ref: '#/components/parameters/filterId'
+    get:
+      tags: [analysis]
+      summary: View index of an entry, or of the nearest entry by time
+      description: >-
+        Lets a client keep its place when the filter changes. Returns the
+        entry's own view index when the view contains it (`exact: true`);
+        otherwise the neighbouring kept entry with the closer timestamp.
+      operationId: locateEntry
+      responses:
+        '200':
+          description: View index (null when the view is empty).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vi: { type: integer, nullable: true }
+                  exact: { type: boolean }
+        '400':
+          description: Missing or invalid `i`.
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/logs/{id}/bookmarks/next:
     parameters:
       - $ref: '#/components/parameters/sourceId'

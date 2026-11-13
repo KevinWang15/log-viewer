@@ -324,11 +324,66 @@ function detectFormat(lines) {
         return best;
     return exports.PLAIN_FORMAT;
 }
+// Fast path for the most common stamp shape, `YYYY-MM-DD[ T]HH:MM:SS[.,]f…`
+// in local time (no zone). Entries arrive in time order, so the epoch of the
+// current minute is cached and only seconds/millis are added per line; this
+// skips Date.parse on almost every line while indexing. Caching per minute
+// (not per hour) keeps DST exact, since zone offsets change on minute
+// boundaries. Returns NaN for anything else so the general path decides.
+let minuteKey = '';
+let minuteBase = 0;
+const STAMP_DIGITS = [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18];
+function isDigit(c) {
+    return c >= 48 && c <= 57;
+}
+function fastLocalTimestamp(s) {
+    const len = s.length;
+    if (len !== 19 && (len < 21 || len > 26))
+        return NaN;
+    const sep = s.charCodeAt(10);
+    if (s.charCodeAt(4) !== 45 || // -
+        s.charCodeAt(7) !== 45 ||
+        (sep !== 32 && sep !== 84) || // ' ' or T
+        s.charCodeAt(13) !== 58 || // :
+        s.charCodeAt(16) !== 58) {
+        return NaN;
+    }
+    for (const k of STAMP_DIGITS)
+        if (!isDigit(s.charCodeAt(k)))
+            return NaN;
+    let ms = 0;
+    if (len > 19) {
+        const dot = s.charCodeAt(19);
+        if (dot !== 46 && dot !== 44)
+            return NaN; // . or ,
+        for (let k = 20; k < len; k++)
+            if (!isDigit(s.charCodeAt(k)))
+                return NaN;
+        // Millis from the first three fraction digits, right-padded (".5" = 500).
+        for (let k = 20; k < 23; k++)
+            ms = ms * 10 + (k < len ? s.charCodeAt(k) - 48 : 0);
+    }
+    const sec = (s.charCodeAt(17) - 48) * 10 + (s.charCodeAt(18) - 48);
+    if (sec > 59)
+        return NaN;
+    const key = s.slice(0, 16);
+    if (key !== minuteKey) {
+        const base = Date.parse(s.slice(0, 10) + 'T' + s.slice(11, 16) + ':00');
+        if (Number.isNaN(base))
+            return NaN;
+        minuteKey = key;
+        minuteBase = base;
+    }
+    return minuteBase + sec * 1000 + ms;
+}
 // Returns epoch millis, or millis-since-midnight (< 86400000) for time-only
 // stamps, or 0 when unparseable.
 function parseTimestamp(s) {
     if (!s)
         return 0;
+    const fast = fastLocalTimestamp(s);
+    if (!Number.isNaN(fast))
+        return fast;
     let v = s.trim().replace(',', '.');
     const timeOnly = /^(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?$/.exec(v);
     if (timeOnly) {

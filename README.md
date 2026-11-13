@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.png" width="160" alt="log-viewer logo"></p>
+
 # log-viewer
 
 log-viewer provides quick and clear log analysis in the browser. The Node.js backend does all the heavy lifting (indexing, parsing, filtering, tailing), so multi-GB log files stay fast — the browser only ever holds the rows on screen.
@@ -177,6 +179,8 @@ npm run test:e2e       # browser e2e (needs `npm start` running + Chrome; set CH
 npm run test:e2e:bridge     # iframe postMessage bridge e2e (self-contained)
 npm run test:e2e:component  # <log-viewer> custom element e2e (self-contained)
 npm run test:cdp       # CDP visual/a11y/load/performance audit; writes artifacts under /tmp
+npm run bench          # server benchmark (BENCH_ENTRIES=2000000 for a ~200 MB file)
+npm run bench:ui       # frontend benchmark: scroll/tail main-thread cost under 4x CPU throttle (needs Chrome)
 nerdctl build -t log-viewer:local .
 nerdctl run --rm -p 5178:5178 -v /var/log:/logs log-viewer:local
 ```

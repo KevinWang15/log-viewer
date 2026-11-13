@@ -14,6 +14,7 @@ import { renderDetail } from './detail';
 import type { Criteria, SourceInfo, WsAppendMsg } from './types';
 import { LEVEL_COLORS, LEVEL_NAMES } from './types';
 import { escapeHtml, fmtNum } from './util';
+import { icon, logoMark } from './icons';
 
 export type WidgetEventName = 'ready' | 'entrySelected' | 'stats';
 
@@ -43,9 +44,9 @@ export function mountLogWidget(root: HTMLElement, opts: WidgetOptions): WidgetHa
 
   root.innerHTML = `
     <div class="embed-toolbar">
-      <span class="embed-title" title="${escapeHtml(title)}">🔍 ${escapeHtml(title)} ${channel ? '<span class="live-badge">LIVE</span>' : ''}</span>
+      <span class="embed-title" title="${escapeHtml(title)}">${logoMark(16)}<span class="embed-name">${escapeHtml(title)}</span>${channel ? '<span class="live-badge">LIVE</span>' : ''}</span>
       <div class="embed-controls" aria-label="Log controls">
-        <button type="button" class="tb-btn" id="em-follow" title="Follow new entries" aria-label="Follow new entries" aria-pressed="false">▶</button>
+        <button type="button" class="tb-btn" id="em-follow" title="Follow new entries" aria-label="Follow new entries" aria-pressed="false">${icon('follow')}</button>
         <span class="tb-sep" aria-hidden="true"></span>
         ${LEVEL_NAMES.map(
           (n, i) =>
@@ -63,6 +64,10 @@ export function mountLogWidget(root: HTMLElement, opts: WidgetOptions): WidgetHa
 
   const grid = new LogGrid($('#em-grid'));
   grid.rowH = 20;
+  grid.onFollowChange = (on) => {
+    st.follow = on;
+    syncToolbar();
+  };
   const detail = $('#em-detail');
   renderDetail(detail, null);
   grid.onSelect = (e) => {
@@ -114,6 +119,7 @@ export function mountLogWidget(root: HTMLElement, opts: WidgetOptions): WidgetHa
     const info = st.info;
     if (!info) return;
     const revision = ++filterRevision;
+    const anchor = grid.captureAnchor();
     const c: Criteria = {};
     if (st.levels.size > 0 && st.levels.size < 6) c.levels = [...st.levels];
     if (st.text) c.text = st.text;
@@ -134,6 +140,8 @@ export function mountLogWidget(root: HTMLElement, opts: WidgetOptions): WidgetHa
         return;
       }
     }
+    // Same entry in the new view, or the nearest one by time.
+    const anchorVi = anchor ? ((await api.locate(info.id, anchor.i, nextFilter).catch(() => null))?.vi ?? null) : null;
     if (revision !== filterRevision || st.info !== info) {
       if (nextFilter) api.deleteFilter(info.id, nextFilter).catch(() => {});
       return;
@@ -142,7 +150,8 @@ export function mountLogWidget(root: HTMLElement, opts: WidgetOptions): WidgetHa
     st.viewCount = nextCount;
     if (old && old !== nextFilter) api.deleteFilter(info.id, old).catch(() => {});
     grid.reset(st.viewCount);
-    if (st.follow) grid.scrollToBottom();
+    if (anchor && anchorVi !== null) grid.restoreAnchor(anchorVi, anchor);
+    else if (st.follow) grid.scrollToBottom();
     renderStatus();
     syncToolbar();
   }

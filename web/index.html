@@ -3,13 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='7' cy='7' r='6' fill='%23e8730c'/><rect x='10.5' y='9.5' width='5' height='2.4' rx='1' transform='rotate(45 10.5 9.5)' fill='%232b3648'/></svg>" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <title>log-viewer</title>
   </head>
   <body>
     <div id="app">
       <div id="menubar" role="toolbar" aria-label="Application actions">
-        <span class="app-icon" aria-hidden="true">🔍</span>
+        <span class="app-icon" aria-hidden="true"></span><span class="app-name">log-viewer</span>
         <button type="button" class="menu" id="menu-file">File</button>
         <button type="button" class="menu" id="menu-filter">Filter</button>
         <button type="button" class="menu" id="menu-tools">Tools</button>
@@ -21,23 +23,27 @@
       <div id="body">
         <div id="sidebar">
           <div id="tree-panel">
-            <div class="panel-header">Log Files &amp; Filters <span class="pin" aria-hidden="true">📌</span></div>
+            <div class="panel-header">Log Files &amp; Filters</div>
             <div id="tree" role="tree" aria-label="Open log sources and filters"></div>
           </div>
+          <div class="splitter splitter-y" id="split-stats" aria-label="Resize statistics panel" aria-controls="stats-panel"></div>
           <div id="stats-panel"></div>
         </div>
+        <div class="splitter splitter-x" id="split-sidebar" aria-label="Resize sidebar" aria-controls="sidebar"></div>
         <div id="main">
           <div id="grid-wrap">
             <div id="grid"></div>
             <div id="welcome" hidden>
               <div class="welcome-box">
+                <div class="welcome-logo" aria-hidden="true"></div>
                 <h2>Quick and clear log analysis.</h2>
                 <p>Open a log file to search, filter, tail and more.</p>
-                <button id="welcome-open" class="btn-primary">OPEN LOG FILE</button>
-                <button id="welcome-demo" class="btn-secondary">VIEW LIVE DEMO STREAM</button>
+                <button id="welcome-open" class="btn-primary">Open log file</button>
+                <button id="welcome-demo" class="btn-secondary">View live demo stream</button>
               </div>
             </div>
           </div>
+          <div class="splitter splitter-y" id="split-detail" aria-label="Resize detail pane" aria-controls="detail"></div>
           <div id="detail"></div>
         </div>
         <div id="navstrip"><canvas id="minimap" role="scrollbar" tabindex="0" aria-label="Log overview; use arrow keys to move" aria-controls="grid" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas></div>
@@ -49,7 +55,7 @@
       <div id="file-modal" role="dialog" aria-modal="true" aria-labelledby="file-modal-title">
         <div class="modal-title" id="file-modal-title">Open Log File</div>
         <div class="modal-path">
-          <button type="button" id="fm-up" title="Parent directory" aria-label="Parent directory">⬆</button>
+          <button type="button" id="fm-up" title="Parent directory" aria-label="Parent directory"></button>
           <label class="sr-only" for="fm-path">Directory path</label>
           <input id="fm-path" aria-label="Directory path" spellcheck="false" />
           <button type="button" id="fm-go">Go</button>

@@ -5,6 +5,8 @@ import { renderDetail } from './detail';
 import type { BrowseResult, Criteria, EntryOut, Rule, SourceInfo, WsAppendMsg } from './types';
 import { LEVEL_COLORS, LEVEL_NAMES } from './types';
 import { escapeHtml, fmtBytes, fmtFullTime, fmtNum, throttle } from './util';
+import { icon, logoMark } from './icons';
+import { makeSplitter } from './splitter';
 
 interface UICriteria {
   levels: Set<number>;
@@ -87,35 +89,35 @@ function buildToolbar() {
       `<button type="button" class="tb-dot" id="tb-lv-${i}" title="Show ${name}" aria-label="Show ${name}" aria-pressed="true"><i style="background:${LEVEL_COLORS[i]}"></i></button>`
   ).join('');
   tb.innerHTML = `
-    <button type="button" class="tb-btn" id="tb-sidebar" title="Sources and statistics" aria-label="Show sources and statistics" aria-expanded="false">☰</button>
-    <button type="button" class="tb-btn" id="tb-open" title="Open log file" aria-label="Open log file">📂</button>
-    <button type="button" class="tb-btn" id="tb-stream" title="Open live stream" aria-label="Open live stream">📡</button>
-    <button type="button" class="tb-btn" id="tb-merge" title="Merge all open logs by time" aria-label="Merge all open logs by time">🗂</button>
+    <button type="button" class="tb-btn" id="tb-sidebar" title="Sources and statistics" aria-label="Show sources and statistics" aria-expanded="false">${icon('menu')}</button>
+    <button type="button" class="tb-btn" id="tb-open" title="Open log file" aria-label="Open log file">${icon('open')}</button>
+    <button type="button" class="tb-btn" id="tb-stream" title="Open live stream" aria-label="Open live stream">${icon('stream')}</button>
+    <button type="button" class="tb-btn" id="tb-merge" title="Merge all open logs by time" aria-label="Merge all open logs by time">${icon('merge')}</button>
     <span class="tb-sep" aria-hidden="true"></span>
-    <button type="button" class="tb-btn" id="tb-follow" title="Tail: follow new entries" aria-label="Follow new entries" aria-pressed="false">▶</button>
+    <button type="button" class="tb-btn" id="tb-follow" title="Tail: follow new entries" aria-label="Follow new entries" aria-pressed="false">${icon('follow')}</button>
     <span class="tb-sep" aria-hidden="true"></span>
     ${dots}
     <label class="sr-only" for="tb-search">Filter log text</label>
     <input id="tb-search" aria-label="Filter log text" placeholder="Filter text… (Enter)" spellcheck="false" />
-    <button type="button" class="tb-btn" id="tb-clear" title="Clear all filters" aria-label="Clear all filters">✕</button>
+    <button type="button" class="tb-btn" id="tb-clear" title="Clear all filters" aria-label="Clear all filters">${icon('filterClear')}</button>
     <span class="tb-sep" aria-hidden="true"></span>
     <label class="sr-only" for="tb-find">Find log text</label>
     <input id="tb-find" aria-label="Find log text" placeholder="Find… (F3)" spellcheck="false" />
-    <button type="button" class="tb-btn" id="tb-find-prev" title="Find previous (Shift+F3)" aria-label="Find previous">◀</button>
-    <button type="button" class="tb-btn" id="tb-find-next" title="Find next (F3)" aria-label="Find next">▶</button>
+    <button type="button" class="tb-btn" id="tb-find-prev" title="Find previous (Shift+F3)" aria-label="Find previous">${icon('arrowUp')}</button>
+    <button type="button" class="tb-btn" id="tb-find-next" title="Find next (F3)" aria-label="Find next">${icon('arrowDown')}</button>
     <span class="tb-sep" aria-hidden="true"></span>
-    <button type="button" class="tb-btn" id="tb-bm" title="Toggle bookmark (Ctrl+B)" aria-label="Toggle bookmark">🔖</button>
-    <button type="button" class="tb-btn" id="tb-bm-prev" title="Previous bookmark" aria-label="Previous bookmark">⯅</button>
-    <button type="button" class="tb-btn" id="tb-bm-next" title="Next bookmark" aria-label="Next bookmark">⯆</button>
+    <button type="button" class="tb-btn" id="tb-bm" title="Toggle bookmark (Ctrl+B)" aria-label="Toggle bookmark">${icon('bookmark')}</button>
+    <button type="button" class="tb-btn" id="tb-bm-prev" title="Previous bookmark" aria-label="Previous bookmark">${icon('chevronUp')}</button>
+    <button type="button" class="tb-btn" id="tb-bm-next" title="Next bookmark" aria-label="Next bookmark">${icon('chevronDown')}</button>
     <span class="tb-sep" aria-hidden="true"></span>
-    <button type="button" class="tb-btn" id="tb-report" title="Report: level histogram" aria-label="Open level report">📊</button>
-    <button type="button" class="tb-btn" id="tb-rules" title="Custom highlight rules" aria-label="Edit highlight rules">🎨</button>
-    <button type="button" class="tb-btn" id="tb-export" title="Export current view" aria-label="Export current view">⬇</button>
-    <button type="button" class="tb-btn" id="tb-save" title="Save analysis" aria-label="Save analysis">💾</button>
-    <button type="button" class="tb-btn" id="tb-load" title="Load analysis" aria-label="Load analysis">📁</button>
+    <button type="button" class="tb-btn" id="tb-report" title="Report: level histogram" aria-label="Open level report">${icon('report')}</button>
+    <button type="button" class="tb-btn" id="tb-rules" title="Custom highlight rules" aria-label="Edit highlight rules">${icon('palette')}</button>
+    <button type="button" class="tb-btn" id="tb-export" title="Export current view" aria-label="Export current view">${icon('download')}</button>
+    <button type="button" class="tb-btn" id="tb-save" title="Save analysis" aria-label="Save analysis">${icon('save')}</button>
+    <button type="button" class="tb-btn" id="tb-load" title="Load analysis" aria-label="Load analysis">${icon('load')}</button>
     <span class="tb-sep" aria-hidden="true"></span>
-    <button type="button" class="tb-btn" id="tb-top" title="Go to start" aria-label="Go to first entry">⤒</button>
-    <button type="button" class="tb-btn" id="tb-bottom" title="Go to end" aria-label="Go to last entry">⤓</button>
+    <button type="button" class="tb-btn" id="tb-top" title="Go to start" aria-label="Go to first entry">${icon('top')}</button>
+    <button type="button" class="tb-btn" id="tb-bottom" title="Go to end" aria-label="Go to last entry">${icon('bottom')}</button>
     <input type="file" id="tb-load-input" accept=".json" hidden />
   `;
   el('tb-sidebar').onclick = () => {
@@ -208,6 +210,12 @@ function setFollow(on: boolean) {
   updateStatus();
 }
 
+grid.onFollowChange = (on) => {
+  state.follow = on;
+  syncToolbar();
+  updateStatus();
+};
+
 // ---- Find / bookmarks ----------------------------------------------------------
 
 async function findNext(dir: 'next' | 'prev') {
@@ -260,44 +268,44 @@ function criteriaParts(s: SourceState): Array<{ key: string; html: string }> {
       html: `<span class="tree-dots">${dots}</span><span>${lvls.map((l) => LEVEL_NAMES[l]).join(', ')}</span>`,
     });
   }
-  if (c.text) parts.push({ key: 'text', html: `<span>🔍</span><span>'${escapeHtml(c.text)}'</span>` });
+  if (c.text) parts.push({ key: 'text', html: `${icon('search', 14)}<span>'${escapeHtml(c.text)}'</span>` });
   if (c.threads.size)
     parts.push({
       key: 'threads',
-      html: `<span>🔁</span><span>Thread (${[...c.threads].map(escapeHtml).join(' OR ')})</span>`,
+      html: `${icon('thread', 14)}<span>Thread (${[...c.threads].map(escapeHtml).join(' OR ')})</span>`,
     });
   if (c.loggers.size)
     parts.push({
       key: 'loggers',
-      html: `<span>📃</span><span>Logger (${[...c.loggers].map(escapeHtml).join(' OR ')})</span>`,
+      html: `${icon('tag', 14)}<span>Logger (${[...c.loggers].map(escapeHtml).join(' OR ')})</span>`,
     });
   if (c.timeFrom !== null)
-    parts.push({ key: 'timeFrom', html: `<span>🕐</span><span>After ${fmtFullTime(c.timeFrom)}</span>` });
+    parts.push({ key: 'timeFrom', html: `${icon('clock', 14)}<span>After ${fmtFullTime(c.timeFrom)}</span>` });
   if (c.timeTo !== null)
-    parts.push({ key: 'timeTo', html: `<span>🕐</span><span>Before ${fmtFullTime(c.timeTo)}</span>` });
+    parts.push({ key: 'timeTo', html: `${icon('clock', 14)}<span>Before ${fmtFullTime(c.timeTo)}</span>` });
   return parts;
 }
 
 function renderTree() {
   const tree = el('tree');
   if (state.sources.size === 0) {
-    tree.innerHTML = '<div class="tree-empty">No log files open.<br/>Use File ▸ Open or the 📂 button.</div>';
+    tree.innerHTML = '<div class="tree-empty">No log files open.<br/>Use File ▸ Open or the Open button in the toolbar.</div>';
     return;
   }
   const parts: string[] = [];
   for (const s of state.sources.values()) {
     const isActive = s.info.id === state.activeId;
-    const icon = s.info.kind === 'stream' ? '📡' : s.info.kind === 'merged' ? '🗂' : '📄';
+    const kindIcon = icon(s.info.kind === 'stream' ? 'stream' : s.info.kind === 'merged' ? 'merge' : 'file', 14);
     const live = s.info.kind === 'stream' ? ' <span class="live-badge">LIVE</span>' : '';
     parts.push(
       `<div class="tree-node${isActive ? ' active' : ''}" data-src="${s.info.id}" role="treeitem" tabindex="0" aria-selected="${isActive}">` +
-        `<span aria-hidden="true">${icon}</span><span>${escapeHtml(s.info.name)}</span>${live}` +
-        `<button type="button" class="close" data-close="${s.info.id}" aria-label="Close ${escapeHtml(s.info.name)}">✕</button></div>`
+        `${kindIcon}<span class="tree-name">${escapeHtml(s.info.name)}</span>${live}` +
+        `<button type="button" class="close" data-close="${s.info.id}" aria-label="Close ${escapeHtml(s.info.name)}">${icon('close', 14)}</button></div>`
     );
     if (isActive) {
       for (const p of criteriaParts(s)) {
         parts.push(
-          `<div class="tree-node tree-child" role="treeitem">${p.html}<button type="button" class="close" data-clear="${p.key}" aria-label="Clear ${p.key} filter">✕</button></div>`
+          `<div class="tree-node tree-child" role="treeitem">${p.html}<button type="button" class="close" data-clear="${p.key}" aria-label="Clear ${p.key} filter">${icon('close', 14)}</button></div>`
         );
       }
     }
@@ -346,15 +354,15 @@ function renderStats() {
   const total = all.reduce((a, b) => a + b, 0);
   const viewTotal = s.filterId ? s.viewCount : total;
   const rows: string[] = [
-    `<tr><td>Records:</td><td>${fmtNum(total)}</td><td>${fmtNum(viewTotal)}</td></tr>`,
-    `<tr><td>Threads:</td><td>${fmtNum(s.info.threads.filter(Boolean).length)}</td><td></td></tr>`,
-    `<tr><td>Loggers:</td><td>${fmtNum(s.info.loggers.filter(Boolean).length)}</td><td></td></tr>`,
-    `<tr><td>Bookmarks:</td><td>${fmtNum(s.bookmarks.size)}</td><td></td></tr>`,
+    `<tr><td>Records</td><td>${fmtNum(total)}</td><td>${fmtNum(viewTotal)}</td></tr>`,
+    `<tr><td>Threads</td><td>${fmtNum(s.info.threads.filter(Boolean).length)}</td><td></td></tr>`,
+    `<tr><td>Loggers</td><td>${fmtNum(s.info.loggers.filter(Boolean).length)}</td><td></td></tr>`,
+    `<tr><td>Bookmarks</td><td>${fmtNum(s.bookmarks.size)}</td><td></td></tr>`,
   ];
   LEVEL_NAMES.forEach((name, i) => {
     const label = name.charAt(0) + name.slice(1).toLowerCase();
     rows.push(
-      `<tr><td class="st-lv" style="color:${LEVEL_COLORS[i]}">${label}:</td>` +
+      `<tr><td class="st-lv"><i class="lv-dot" style="background:${LEVEL_COLORS[i]}"></i>${label}</td>` +
         `<td>${fmtNum(all[i])}</td><td>${fmtNum(view[i])}</td></tr>`
     );
   });
@@ -363,18 +371,27 @@ function renderStats() {
 
 function updateStatus() {
   const s = active();
-  el('status-left').textContent = s
-    ? `${s.info.name} — format: ${s.info.format}${s.info.path ? ' — ' + s.info.path : ''}`
+  const sep = '<i class="sb-sep" aria-hidden="true"></i>';
+  el('status-left').innerHTML = s
+    ? `<span class="sb-name">${escapeHtml(s.info.name)}</span>${sep}<span class="sb-chip" title="Detected log format">${escapeHtml(s.info.format)}</span>` +
+      (s.info.path ? `${sep}<span class="sb-path" title="${escapeHtml(s.info.path)}">${escapeHtml(s.info.path)}</span>` : '')
     : 'Ready';
-  el('status-right').textContent = s
-    ? `${fmtNum(s.viewCount)} records${s.filterId ? ' (filtered)' : ''}${state.follow ? ' • following' : ''}`
+  el('status-right').innerHTML = s
+    ? `<span>${fmtNum(s.viewCount)} records</span>` +
+      (s.filterId ? `<span class="sb-chip sb-filtered">filtered</span>` : '') +
+      (state.follow ? `${sep}<span class="sb-follow">following</span>` : '')
     : '';
   el('win-title').textContent = s ? `${s.info.name} - log-viewer` : 'log-viewer';
 }
 
 // ---- Minimap ------------------------------------------------------------------
 
+// Bumped on every refresh so a slow response can't paint over a newer one,
+// e.g. marks from a source that was closed while its request was in flight.
+let minimapGen = 0;
+
 const refreshMinimap = throttle(async () => {
+  const gen = ++minimapGen;
   const s = active();
   const ctx = minimapCanvas.getContext('2d');
   if (!ctx) return;
@@ -387,6 +404,7 @@ const refreshMinimap = throttle(async () => {
   if (!s || s.viewCount === 0) return;
   try {
     const { buckets, bookmarks } = await api.getMinimap(s.info.id, Math.max(50, Math.floor(h / 3)), s.filterId);
+    if (gen !== minimapGen || active() !== s) return;
     const bh = h / buckets.length;
     buckets.forEach((lv, b) => {
       if (lv >= 3) {
@@ -396,7 +414,7 @@ const refreshMinimap = throttle(async () => {
     });
     bookmarks?.forEach((on, b) => {
       if (on) {
-        ctx.fillStyle = '#12a5c9';
+        ctx.fillStyle = '#6366f1';
         ctx.fillRect(0, b * bh, 4, Math.max(2, bh - 1));
       }
     });
@@ -634,7 +652,7 @@ function openRulesModal() {
   backdrop.id = 'rules-backdrop';
   backdrop.innerHTML = `
     <div id="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-modal-title">
-      <div class="modal-title" id="rules-modal-title">Custom Rules — highlight matching entries</div>
+      <div class="modal-title" id="rules-modal-title">Highlight rules <span class="modal-sub">Color entries that match</span></div>
       <div id="rules-list"></div>
       <div class="rules-footer">
         <button type="button" id="rule-add">＋ Add rule</button>
@@ -664,7 +682,7 @@ function openRulesModal() {
         <input type="color" class="r-fg" aria-label="Foreground color" value="${r.fg || '#000000'}" />
         <input type="color" class="r-bg" aria-label="Background color" value="${r.bg || '#fff2f2'}" />
         <input type="checkbox" class="r-bold" aria-label="Use bold text" ${r.bold ? 'checked' : ''} />
-        <button type="button" class="rule-del" title="Delete" aria-label="Delete rule">✕</button>
+        <button type="button" class="rule-del" title="Delete" aria-label="Delete rule">${icon('delete', 14)}</button>
       </div>`
         )
         .join('');
@@ -737,7 +755,7 @@ async function openReportModal() {
   backdrop.id = 'rules-backdrop';
   backdrop.innerHTML = `
     <div id="rules-modal" role="dialog" aria-modal="true" aria-labelledby="report-modal-title">
-      <div class="modal-title" id="report-modal-title">Report — ${escapeHtml(s.info.name)}${s.filterId ? ' (filtered view)' : ''}</div>
+      <div class="modal-title" id="report-modal-title">Report <span class="modal-sub">${escapeHtml(s.info.name)}${s.filterId ? ', filtered view' : ''}</span></div>
       <div id="report-body" aria-live="polite" style="flex:1;overflow:auto;padding:14px">Loading…</div>
       <div class="rules-footer"><span class="spacer"></span><button type="button" id="report-close">Close</button></div>
     </div>`;
@@ -761,8 +779,8 @@ async function openReportModal() {
        .map((x) => `<tr><td>${escapeHtml(x.name)}</td><td>${fmtNum(x.count)}</td></tr>`)
        .join('')}</table></div>`;
   body.innerHTML = `
-    <div style="font-size:12px;color:#6a7382;margin-bottom:8px">
-      ${fmtNum(r.total)} records — ${fmtFullTime(r.from)} → ${fmtFullTime(r.to)}
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
+      ${fmtNum(r.total)} records · ${fmtFullTime(r.from)} → ${fmtFullTime(r.to)}
     </div>
     <canvas id="report-canvas" role="img" aria-label="Stacked level histogram across the selected time range" width="660" height="240" style="width:100%;border:1px solid var(--border-light);border-radius:3px"></canvas>
     <div style="display:flex;gap:6px;margin:6px 0 14px;font-size:11px">
@@ -775,7 +793,7 @@ async function openReportModal() {
     <table class="stats-table"><tr><th>Count</th><th>Template</th><th>Example</th></tr>${r.topMessages
       .map(
         (m) =>
-          `<tr><td>${fmtNum(m.count)}</td><td><code>${escapeHtml(m.template)}</code></td><td style="color:#6a7382">${escapeHtml(m.example)}</td></tr>`
+          `<tr><td>${fmtNum(m.count)}</td><td><code>${escapeHtml(m.template)}</code></td><td style="color:var(--muted)">${escapeHtml(m.example)}</td></tr>`
       )
       .join('')}</table>`;
 
@@ -916,6 +934,7 @@ async function closeSource(id: string) {
       el('welcome').hidden = false;
       renderStats();
       updateStatus();
+      refreshMinimap();
     }
   }
   renderTree();
@@ -966,9 +985,11 @@ async function applyCriteria() {
   const sourceId = s.info.id;
   const c = buildServerCriteria(s.criteria);
   const oldFilter = s.filterId;
+  const anchor = state.activeId === sourceId ? grid.captureAnchor() : null;
   let nextFilter: string | null = null;
   let nextCount = s.info.count;
   let nextStats = [...s.info.stats];
+  let anchorVi: number | null = null;
   try {
     if (Object.keys(c).length > 0) {
       const r = await api.createFilter(sourceId, c);
@@ -976,6 +997,8 @@ async function applyCriteria() {
       nextCount = r.count;
       nextStats = r.stats;
     }
+    // Same entry in the new view, or the nearest one by time.
+    if (anchor) anchorVi = (await api.locate(sourceId, anchor.i, nextFilter).catch(() => null))?.vi ?? null;
   } catch (err) {
     if (revision === s.filterRevision && state.activeId === sourceId) {
       el('status-left').textContent = 'Filter failed: ' + (err as Error).message;
@@ -992,7 +1015,8 @@ async function applyCriteria() {
   if (oldFilter && oldFilter !== nextFilter) api.deleteFilter(sourceId, oldFilter).catch(() => {});
   if (state.activeId !== sourceId) return;
   grid.reset(s.viewCount);
-  if (state.follow) grid.scrollToBottom();
+  if (anchor && anchorVi !== null) grid.restoreAnchor(anchorVi, anchor);
+  else if (state.follow) grid.scrollToBottom();
   renderTree();
   renderStats();
   syncToolbar();
@@ -1126,17 +1150,17 @@ function showChunkChooser(dirPath: string, file: { name: string; size: number })
   const list = el('fm-list');
   const full = dirPath + '/' + file.name;
   const parts: string[] = [
-    `<button type="button" class="fm-item" data-whole="1"><span aria-hidden="true">📄</span><span>Open entire file (${fmtBytes(file.size)}) — may take a while</span></button>`,
+    `<button type="button" class="fm-item" data-whole="1">${icon('file')}<span>Open entire file (${fmtBytes(file.size)}). May take a while.</span></button>`,
   ];
   const n = Math.ceil(file.size / CHUNK_SIZE);
   for (let p = 0; p < n; p++) {
     const s = p * CHUNK_SIZE;
     const e = Math.min(file.size, (p + 1) * CHUNK_SIZE);
     parts.push(
-      `<button type="button" class="fm-item" data-part="${p}"><span aria-hidden="true">🧩</span><span>Part ${p + 1} (bytes ${fmtBytes(s)} – ${fmtBytes(e)})</span></button>`
+      `<button type="button" class="fm-item" data-part="${p}">${icon('part')}<span>Part ${p + 1} (bytes ${fmtBytes(s)} – ${fmtBytes(e)})</span></button>`
     );
   }
-  list.innerHTML = `<div class="modal-title" style="background:none">Open Part of File — ${escapeHtml(file.name)}</div>` + parts.join('');
+  list.innerHTML = `<div class="modal-title" style="background:none">Open part of file <span class="modal-sub">${escapeHtml(file.name)}</span></div>` + parts.join('');
   list.querySelectorAll<HTMLElement>('.fm-item').forEach((item) => {
     item.onclick = async () => {
       closeFileModal();
@@ -1162,10 +1186,10 @@ async function loadDir(path?: string) {
     el('fm-samples').onclick = () => void loadDir(r.samples);
     const parts: string[] = [];
     for (const d of r.dirs)
-      parts.push(`<button type="button" class="fm-item" data-dir="${escapeHtml(d.name)}"><span aria-hidden="true">📁</span><span>${escapeHtml(d.name)}</span></button>`);
+      parts.push(`<button type="button" class="fm-item" data-dir="${escapeHtml(d.name)}">${icon('folder')}<span>${escapeHtml(d.name)}</span></button>`);
     for (const f of r.files)
       parts.push(
-        `<button type="button" class="fm-item" data-file="${escapeHtml(f.name)}" data-size="${f.size}"><span aria-hidden="true">📄</span><span>${escapeHtml(f.name)}</span><span class="size">${fmtBytes(f.size)}</span></button>`
+        `<button type="button" class="fm-item" data-file="${escapeHtml(f.name)}" data-size="${f.size}">${icon('file')}<span>${escapeHtml(f.name)}</span><span class="size">${fmtBytes(f.size)}</span></button>`
       );
     list.innerHTML = parts.join('') || '<div class="tree-empty">Empty directory.</div>';
     list.querySelectorAll<HTMLElement>('.fm-item').forEach((item) => {
@@ -1194,6 +1218,12 @@ async function loadDir(path?: string) {
 // ---- Boot -------------------------------------------------------------------------------
 
 function init() {
+  document.querySelector('.app-icon')!.innerHTML = logoMark(20);
+  document.querySelector('.welcome-logo')!.innerHTML = logoMark(96);
+  makeSplitter({ handle: el('split-sidebar'), pane: el('sidebar'), axis: 'x', min: 180, max: () => window.innerWidth * 0.5, key: 'sidebar' });
+  makeSplitter({ handle: el('split-stats'), pane: el('stats-panel'), axis: 'y', paneAfter: true, min: 80, max: () => el('sidebar').clientHeight - 120, key: 'stats' });
+  makeSplitter({ handle: el('split-detail'), pane: detailEl, axis: 'y', paneAfter: true, min: 60, max: () => el('main').clientHeight - 120, key: 'detail' });
+  el('fm-up').innerHTML = icon('dirUp');
   buildToolbar();
   renderDetail(detailEl, null);
   grid.onSelect = (e) => renderDetail(detailEl, e);

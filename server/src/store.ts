@@ -75,14 +75,17 @@ const TEMPLATE_QUOTED = /"[^"\n]*"|'[^'\n]*'/g;
 const TEMPLATE_HEX = /\b[0-9a-fA-F]{8,}\b/g;
 const TEMPLATE_DIGITS = /\d+/g;
 
+// One pass instead of four: alternation order keeps the old precedence
+// (uuid, then quoted, then hex, then digits) at each position.
+const TEMPLATE_ANY = new RegExp(
+  [TEMPLATE_UUID, TEMPLATE_QUOTED, TEMPLATE_HEX, TEMPLATE_DIGITS].map((r) => r.source).join('|'),
+  'g'
+);
+
 // Collapses the variable parts of a message (uuids, quoted values, hex tokens,
 // numbers) so repeated log statements group into one template.
 export function messageTemplate(msg: string): string {
-  const t = msg
-    .replace(TEMPLATE_UUID, '?')
-    .replace(TEMPLATE_QUOTED, '?')
-    .replace(TEMPLATE_HEX, '?')
-    .replace(TEMPLATE_DIGITS, '?');
+  const t = msg.replace(TEMPLATE_ANY, '?');
   return t.length > MAX_TEMPLATE_LENGTH ? t.slice(0, MAX_TEMPLATE_LENGTH - 1) + '…' : t;
 }
 
@@ -270,19 +273,18 @@ export class Store {
     }
     // Message templates need the parsed message, which is not indexed: read
     // the not-yet-folded rows in coalesced batches.
-    const MSG_BATCH = 1000;
+    const MSG_BATCH = 4096;
     for (let s = foldFrom; s < n; s += MSG_BATCH) {
       const idxs: number[] = [];
       for (let k = s; k < Math.min(n, s + MSG_BATCH); k++) idxs.push(at(k));
-      const entries = await src.getEntries(idxs);
-      for (const e of entries) {
-        const template = messageTemplate(e.msg);
+      for (const msg of await src.getMessages(idxs)) {
+        const template = messageTemplate(msg);
         const rec = c.msgTemplates.get(template);
         if (rec) rec.count++;
         else {
           c.msgTemplates.set(template, {
             count: 1,
-            example: e.msg.length > MAX_TEMPLATE_LENGTH ? e.msg.slice(0, MAX_TEMPLATE_LENGTH - 1) + '…' : e.msg,
+            example: msg.length > MAX_TEMPLATE_LENGTH ? msg.slice(0, MAX_TEMPLATE_LENGTH - 1) + '…' : msg,
           });
         }
       }
@@ -359,6 +361,36 @@ export class Store {
     }
     for (const id of expired) await this.removeSource(id);
     return expired.length;
+  }
+
+  // Maps a global entry index to a view index, so a client can keep its place
+  // when the filter changes. Exact when the entry is in the view; otherwise the
+  // neighbour (previous or next kept entry) with the closer timestamp, falling
+  // back to the next one when timestamps are missing. Filter indices are
+  // ascending, so this is a binary search.
+  locate(src: BaseSource, f: FilterEntry | null | undefined, i: number): { vi: number; exact: boolean } | null {
+    const n = f ? f.indices.length : src.count;
+    if (n === 0) return null;
+    if (!f) {
+      const vi = Math.max(0, Math.min(n - 1, i));
+      return { vi, exact: vi === i };
+    }
+    const idx = f.indices;
+    let lo = 0;
+    let hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (idx[mid] < i) lo = mid + 1;
+      else hi = mid;
+    }
+    if (lo < n && idx[lo] === i) return { vi: lo, exact: true };
+    if (lo === 0) return { vi: 0, exact: false };
+    if (lo === n) return { vi: n - 1, exact: false };
+    const t = src.timeAt(Math.max(0, Math.min(src.count - 1, i)));
+    const tPrev = src.timeAt(idx[lo - 1]);
+    const tNext = src.timeAt(idx[lo]);
+    if (![t, tPrev, tNext].every((x) => Number.isFinite(x) && x > 0)) return { vi: lo, exact: false };
+    return { vi: t - tPrev < tNext - t ? lo - 1 : lo, exact: false };
   }
 
   async createFilter(src: BaseSource, criteria: Criteria): Promise<FilterEntry> {

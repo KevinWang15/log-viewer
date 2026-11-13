@@ -546,6 +546,27 @@ app.put('/api/logs/:id/bookmarks', (req, res) => {
 });
 
 // Next/previous bookmark relative to a view position (honors active filter).
+// ---- Locate (keep position across filter changes) ------------------------------
+
+app.get('/api/logs/:id/locate', (req, res) => {
+  const src = store.sources.get(req.params.id);
+  if (!src) {
+    res.status(404).json({ error: 'unknown log ' + req.params.id });
+    return;
+  }
+  const i = Number(req.query.i);
+  if (!Number.isInteger(i) || i < 0) {
+    res.status(400).json({ error: 'i must be a non-negative integer' });
+    return;
+  }
+  const f = req.query.filter ? store.filters.get(String(req.query.filter)) : null;
+  if (req.query.filter && (!f || f.sourceId !== src.id)) {
+    res.status(404).json({ error: 'unknown filter ' + String(req.query.filter) });
+    return;
+  }
+  res.json(store.locate(src, f, i) ?? { vi: null, exact: false });
+});
+
 app.get('/api/logs/:id/bookmarks/next', (req, res) => {
   const src = store.sources.get(req.params.id);
   if (!src) {

@@ -82,5 +82,6 @@ export interface Rule {
 }
 
 export const LEVEL_NAMES = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'] as const;
-// Each level color meets WCAG AA contrast against the default white row.
-export const LEVEL_COLORS = ['#365fae', '#656565', '#167016', '#9a5700', '#c31717', '#8b0000'] as const;
+// Swatch colors for dots, minimap and charts. Not used for text: row text
+// colors live in styles.css and meet WCAG AA contrast.
+export const LEVEL_COLORS = ['#94a3b8', '#64748b', '#3b82f6', '#f59e0b', '#ef4444', '#991b1b'] as const;

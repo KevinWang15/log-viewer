@@ -500,3 +500,31 @@ test('corrupt gzip input is rejected and cleans up', async () => {
   assert.ok(err);
   assert.equal(err.status, 400);
 });
+
+test('getMessages returns the same messages as getEntries', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lvw-msgs-'));
+  try {
+    for (const eol of ['\n', '\r\n']) {
+      const file = path.join(dir, `m${eol.length}.log`);
+      const lines: string[] = [];
+      for (let k = 0; k < 3000; k++) {
+        lines.push(`2026-07-13 10:00:${String(k % 60).padStart(2, '0')},${String(k % 1000).padStart(3, '0')} [T${k % 4}] ${['INFO', 'WARN', 'ERROR'][k % 3]} com.ex.Svc - req ${k} ünïcødé ✓`);
+        if (k % 7 === 0) lines.push(`   at com.ex.Svc.handle(Svc.java:${k})`, '   at com.ex.Main.run(Main.java:1)');
+      }
+      fs.writeFileSync(file, lines.join(eol) + eol);
+      const src = await FileLogSource.open('m' + eol.length, file);
+      try {
+        const all = Array.from({ length: src.count }, (_, k) => k);
+        const expected = (await src.getEntries(all)).map((e) => e.msg);
+        assert.deepEqual(await src.getMessages(all), expected, `contiguous, eol=${JSON.stringify(eol)}`);
+        const sparse = [src.count - 1, 5, 4, 900, 901, 902, -1, src.count + 3, 0];
+        const sparseExpected = (await src.getEntries([...sparse].filter((i) => i >= 0 && i < src.count).sort((a, b) => a - b))).map((e) => e.msg);
+        assert.deepEqual(await src.getMessages(sparse), sparseExpected, 'sparse/unsorted/out-of-range');
+      } finally {
+        await src.close();
+      }
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

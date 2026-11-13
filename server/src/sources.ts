@@ -167,6 +167,13 @@ export abstract class BaseSource extends EventEmitter {
   abstract loggerAt(i: number): string;
   abstract timeAt(i: number): number;
   abstract getEntries(idxs: number[]): Promise<EntryOut[]>;
+
+  // Grid messages (EntryOut.msg) for the given indices, skipping out-of-range
+  // ones like getEntries. For aggregate scans that need only the message;
+  // sources that can avoid building full entries override this.
+  async getMessages(idxs: number[]): Promise<string[]> {
+    return (await this.getEntries(idxs)).map((e) => e.msg);
+  }
   // Sequentially yields (index, full raw text) for entries in [from, to).
   // Returning false from the callback stops the scan early.
   abstract scanTexts(cb: (i: number, raw: string) => boolean | void, from?: number, to?: number): Promise<void>;
@@ -563,6 +570,53 @@ export class FileLogSource extends BaseSource {
       }
     }
     return out.filter((e): e is EntryOut => !!e);
+  }
+
+  // Same messages as getEntries(idxs).map(e => e.msg), but decodes and parses
+  // only each entry's first line and builds no entry objects. Mirrors
+  // getEntries byte for byte: the MAX_ENTRY_BYTES cap, the trailing \r?\n
+  // strip, and the first-line split.
+  async getMessages(idxs: number[]): Promise<string[]> {
+    if (!this.fh) return [];
+    const list = idxs.filter((i) => i >= 0 && i < this.count);
+    for (let k = 1; k < list.length; k++) {
+      if (list[k] < list[k - 1]) {
+        list.sort((a, b) => a - b);
+        break;
+      }
+    }
+    const endOf = (i: number) => (i + 1 < this.count ? this.offsets[i + 1] : this.indexedSize);
+    const out: string[] = [];
+    let q = 0;
+    while (q < list.length) {
+      // Consecutive indices share one read, capped at SCAN_BLOCK.
+      const runStart = this.offsets[list[q]];
+      let r = q;
+      let runEnd = runStart;
+      while (r < list.length && (r === q || list[r] === list[r - 1] + 1)) {
+        const end = endOf(list[r]);
+        if (end - runStart > SCAN_BLOCK && r > q) break;
+        runEnd = end;
+        r++;
+      }
+      const readLen = Math.min(runEnd, this.offsets[list[r - 1]] + MAX_ENTRY_BYTES) - runStart;
+      const buf = Buffer.alloc(readLen);
+      await this.fh.read(buf, 0, readLen, runStart);
+      for (let p = q; p < r; p++) {
+        const i = list[p];
+        const s = this.offsets[i] - runStart;
+        let end = s + Math.min(endOf(i) - this.offsets[i], MAX_ENTRY_BYTES);
+        if (end > s && buf[end - 1] === 10) {
+          end--;
+          if (end > s && buf[end - 1] === 13) end--;
+        }
+        const nl = buf.indexOf(10, s);
+        const first = buf.toString('utf8', s, nl !== -1 && nl < end ? nl : end);
+        out.push(this.format.parse(first).message || first);
+      }
+      q = r;
+    }
+    return out;
   }
 
   async scanTexts(cb: (i: number, raw: string) => boolean | void, from = 0, to = this.count): Promise<void> {
