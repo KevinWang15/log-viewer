@@ -1,0 +1,24 @@
+{
+  "name": "log-viewer",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w web && npm run build -w server",
+    "start": "npm run start -w server",
+    "test": "npm test -w server",
+    "bench": "npm run build -w server && node --expose-gc server/test/perf.bench.mjs",
+    "test:e2e": "SHOT_DIR=/tmp node e2e/ui.test.mjs",
+    "test:e2e:bridge": "node e2e/embed-bridge.test.mjs",
+    "test:e2e:component": "node e2e/component.test.mjs",
+    "test:cdp": "node e2e/cdp-audit.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "puppeteer-core": "^25.3.0"
+  }
+}

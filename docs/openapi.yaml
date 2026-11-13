@@ -1,0 +1,940 @@
+openapi: 3.0.3
+info:
+  title: log-viewer API
+  version: v1
+  description: |
+    REST API of the log-viewer log viewer. The `v1` streams API is the
+    stable producer lifecycle for embedded, in-memory log streams; the
+    `/api/logs/*` endpoints are the read/analysis surface used by the web UI
+    and the embeddable widget.
+
+    Producers should discover the deployment with `GET /api/v1/capabilities`
+    and must not construct internal source IDs — use the `id` returned by the
+    streams lifecycle with the windowed read endpoints.
+
+    Live updates are delivered over `WS /ws` (not described by this document):
+    send `{"type":"sub","id":"<source-id>","viewKey":"…"}` and receive
+    `reset`/`append` notifications; entry text still comes from the windowed
+    HTTP reads. Producers may also ingest with
+    `{"type":"publish","channel":"…","lines":[…]}`.
+
+    Auth: when `STREAM_KEY`/`STREAM_TOKENS` are configured, stream mutations
+    require the `x-stream-key` header. When `VIEW_KEY` is configured, every
+    read endpoint under `/api` (all except `/healthz`) requires the
+    `x-view-key` header or the `viewKey` query parameter; the master
+    `x-stream-key` also satisfies read auth. With neither set, all endpoints
+    are open — keep the service private or behind an authenticated proxy.
+  contact: {}
+servers:
+  - url: http://127.0.0.1:5178
+    description: Default local bind
+tags:
+  - name: streams
+    description: v1 stream producer lifecycle
+  - name: sources
+    description: Open log sources (files, streams, merged views)
+  - name: analysis
+    description: Filters, search, correlation, reports
+  - name: meta
+    description: Discovery and health
+paths:
+  /healthz:
+    get:
+      tags: [meta]
+      summary: Liveness probe
+      description: Never requires authentication, even when VIEW_KEY is set.
+      operationId: healthz
+      security: []
+      responses:
+        '200':
+          description: Service is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  uptime: { type: number, description: Process uptime in seconds }
+                  sources: { type: integer }
+                  streams: { type: integer }
+                  streamBytes: { type: integer }
+  /api/v1/capabilities:
+    get:
+      tags: [meta, streams]
+      summary: Protocol discovery and active limits
+      operationId: capabilities
+      responses:
+        '200':
+          description: 'Service capabilities. `cache-control: no-store`.'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service: { type: string, example: log-viewer }
+                  serviceVersion: { type: string }
+                  apiVersion: { type: string, example: v1 }
+                  streamLifecycle:
+                    type: object
+                    properties:
+                      create: { type: string, example: 'PUT /api/v1/streams/:channel' }
+                      append: { type: string, example: 'POST /api/v1/streams/:channel/entries' }
+                      inspect: { type: string, example: 'GET /api/v1/streams/:channel' }
+                      delete: { type: string, example: 'DELETE /api/v1/streams/:channel' }
+                  mutationAuth:
+                    type: string
+                    enum: [x-stream-key, none]
+                  limits: { $ref: '#/components/schemas/StreamLimits' }
+  /api/v1/streams/{channel}:
+    parameters:
+      - $ref: '#/components/parameters/channel'
+    put:
+      tags: [streams]
+      summary: Create a stream (idempotent)
+      description: Creates the channel if missing; never appends data.
+      operationId: createStream
+      security:
+        - streamKey: []
+      responses:
+        '201':
+          description: Stream created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StreamAck' }
+        '200':
+          description: Stream already existed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StreamAck' }
+        '400': { $ref: '#/components/responses/BadChannel' }
+        '401': { $ref: '#/components/responses/StreamKeyRequired' }
+    get:
+      tags: [streams]
+      summary: Inspect a stream without creating it
+      operationId: inspectStream
+      responses:
+        '200':
+          description: 'Stream source info. `cache-control: no-store`.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceInfo' }
+        '400': { $ref: '#/components/responses/BadChannel' }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [streams]
+      summary: Release a stream (idempotent)
+      operationId: deleteStream
+      security:
+        - streamKey: []
+      responses:
+        '200':
+          description: Deletion outcome.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  deleted:
+                    type: boolean
+                    description: Whether a stream was present.
+        '400': { $ref: '#/components/responses/BadChannel' }
+        '401': { $ref: '#/components/responses/StreamKeyRequired' }
+  /api/v1/streams/{channel}/entries:
+    parameters:
+      - $ref: '#/components/parameters/channel'
+    post:
+      tags: [streams]
+      summary: Append raw lines and/or structured entries
+      description: |
+        Appends to an existing stream; a missing channel is a 404 — appends
+        never implicitly create streams. Each entry is truncated at 64 KiB;
+        retention applies an entry-count and estimated-byte bound.
+      operationId: appendStreamEntries
+      security:
+        - streamKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                lines:
+                  type: array
+                  items: { type: string }
+                  description: Raw log lines, parsed with the stream's format.
+                entries:
+                  type: array
+                  items: { $ref: '#/components/schemas/StructuredEntry' }
+                  description: Structured entries (mapped fields only).
+      responses:
+        '200':
+          description: Append acknowledgement.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StreamAck' }
+        '400': { $ref: '#/components/responses/BadChannel' }
+        '401': { $ref: '#/components/responses/StreamKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: Encoded request exceeded `STREAM_MAX_PAYLOAD_BYTES`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: '`STREAM_MAX_SOURCES` exhausted (`stream_capacity_reached`).'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /api/logs:
+    get:
+      tags: [sources]
+      summary: List all open sources
+      operationId: listSources
+      responses:
+        '200':
+          description: Open sources (files, streams, merged views).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sources:
+                    type: array
+                    items: { $ref: '#/components/schemas/SourceInfo' }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+  /api/logs/{id}:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+    get:
+      tags: [sources]
+      summary: Inspect one source
+      operationId: getSource
+      responses:
+        '200':
+          description: Source info.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceInfo' }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [sources]
+      summary: Close a source
+      description: Stream sources require the stream mutation key.
+      operationId: closeSource
+      security:
+        - streamKey: []
+        - {}
+      responses:
+        '200':
+          description: Closed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { ok: { type: boolean } }
+        '401': { $ref: '#/components/responses/StreamKeyRequired' }
+  /api/logs/{id}/entries:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+      - name: start
+        in: query
+        schema: { type: integer, minimum: 0, default: 0 }
+      - name: count
+        in: query
+        schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+      - $ref: '#/components/parameters/filterId'
+    get:
+      tags: [sources]
+      summary: Windowed entry fetch (virtual scrolling)
+      description: |
+        `elapsed` on each entry is the delta in ms against the previous entry
+        in the current view (filter aware).
+      operationId: getEntries
+      responses:
+        '200':
+          description: Entry window.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  start: { type: integer }
+                  entries:
+                    type: array
+                    items: { $ref: '#/components/schemas/EntryOut' }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/logs/{id}/filters:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+    post:
+      tags: [analysis]
+      summary: Create a filtered view
+      operationId: createFilter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                criteria: { $ref: '#/components/schemas/Criteria' }
+      responses:
+        '200':
+          description: Filter created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FilterResult' }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/logs/{id}/filters/{fid}:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+      - name: fid
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [analysis]
+      summary: Delete a filter
+      operationId: deleteFilter
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { ok: { type: boolean } }
+  /api/logs/{id}/rules:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+    post:
+      tags: [analysis]
+      summary: Create a rule (criteria → highlight/bookmark/webhook)
+      description: |
+        Creating a rule scans existing entries once (bookmarks apply
+        immediately); webhooks fire only for entries appended after creation.
+        At most 20 rules per source; stream sources require the mutation key.
+      operationId: createRule
+      security:
+        - streamKey: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 200 }
+                criteria: { $ref: '#/components/schemas/Criteria' }
+                actions:
+                  type: object
+                  properties:
+                    highlight:
+                      type: string
+                      pattern: '^#[0-9a-fA-F]{3,8}$'
+                      description: Hex CSS color (#rgb, #rgba, #rrggbb, #rrggbbaa).
+                    bookmark: { type: boolean }
+                    webhook:
+                      type: string
+                      maxLength: 2048
+                      description: http(s) URL POSTed on each append with matches.
+      responses:
+        '200':
+          description: Rule created, with its initial `matchCount`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Rule' }
+        '400':
+          description: Invalid input or rule limit reached (`rule_limit_reached`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/StreamKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    get:
+      tags: [analysis]
+      summary: List a source's rules
+      operationId: listRules
+      responses:
+        '200':
+          description: Rules with live counters.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items: { $ref: '#/components/schemas/Rule' }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/logs/{id}/rules/{rid}:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+      - name: rid
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      tags: [analysis]
+      summary: Delete a rule (bookmarks it created stay)
+      operationId: deleteRule
+      security:
+        - streamKey: []
+        - {}
+      responses:
+        '200':
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { ok: { type: boolean } }
+        '401': { $ref: '#/components/responses/StreamKeyRequired' }
+  /api/logs/{id}/correlate:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+      - name: i
+        in: query
+        required: true
+        schema: { type: integer, minimum: 0 }
+        description: Entry index to extract the correlation id from.
+      - name: key
+        in: query
+        schema: { type: string }
+        description: Restrict extraction to this key only.
+    get:
+      tags: [analysis]
+      summary: Find every entry carrying an entry's correlation id
+      description: |
+        Extracts a `{key, value}` pair from entry `i` (well-known keys such as
+        `requestId`/`traceId`, or an explicit `key=`), then scans the whole
+        source — filters do not apply — for entries containing the value.
+        `indices` is capped at 10,000 entries and the scan at 2,000,000;
+        beyond either cap the response adds `truncated: true`.
+      operationId: correlate
+      responses:
+        '200':
+          description: Correlated entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key: { type: string }
+                  value: { type: string }
+                  count: { type: integer }
+                  indices:
+                    type: array
+                    items: { type: integer }
+                  truncated: { type: boolean }
+        '400':
+          description: Missing or out-of-range `i`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: No correlation id extractable from the entry.
+          content:
+            application/json:
+              schema:
+                example: { error: no correlation id found }
+                allOf:
+                  - $ref: '#/components/schemas/Error'
+  /api/logs/{id}/report:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+      - name: buckets
+        in: query
+        schema: { type: integer, minimum: 10, maximum: 200, default: 60 }
+      - name: format
+        in: query
+        schema: { type: string, enum: [json, csv] }
+      - $ref: '#/components/parameters/filterId'
+    get:
+      tags: [analysis]
+      summary: Aggregates — time histogram, per-level series, top loggers/threads/messages
+      description: |
+        Level indexing is `[TRACE, DEBUG, INFO, WARN, ERROR, FATAL]`.
+        `buckets[].counts` is per bucket; `series[lv][b]` is the same data
+        transposed for line charts. `topLoggers`/`topThreads` return the top
+        8, `topMessages` the top 10 with normalized templates. With
+        `format=csv` the response is `text/csv`, one row per bucket.
+      operationId: report
+      responses:
+        '200':
+          description: Report (JSON or CSV depending on `format`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Report' }
+            text/csv:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/logs/{id}/minimap:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+      - name: buckets
+        in: query
+        schema: { type: integer, minimum: 10, maximum: 2000, default: 400 }
+      - $ref: '#/components/parameters/filterId'
+    get:
+      tags: [analysis]
+      summary: Severity/bookmark buckets for the navigation strip
+      operationId: minimap
+      responses:
+        '200':
+          description: Minimap buckets.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  buckets:
+                    type: array
+                    items: { type: integer }
+                    description: Worst level index per bucket.
+                  bookmarks:
+                    type: array
+                    items: { type: boolean }
+                  count: { type: integer }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/logs/{id}/search:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+      - name: q
+        in: query
+        required: true
+        schema: { type: string }
+      - name: from
+        in: query
+        schema: { type: integer, default: -1 }
+        description: View index to start from (exclusive).
+      - name: dir
+        in: query
+        schema: { type: string, enum: [next, prev], default: next }
+      - name: regex
+        in: query
+        schema: { type: string, enum: ['0', '1'] }
+      - name: cs
+        in: query
+        schema: { type: string, enum: ['0', '1'] }
+        description: Case-sensitive match when `1`.
+      - $ref: '#/components/parameters/filterId'
+    get:
+      tags: [analysis]
+      summary: Find next/previous match without filtering
+      operationId: search
+      responses:
+        '200':
+          description: Match position in the current view (or null).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vi: { type: integer, nullable: true }
+                  capped:
+                    type: boolean
+                    description: True when the 2,000,000-entry scan cap was hit.
+        '400':
+          description: Invalid regex.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/logs/{id}/bookmarks:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+    get:
+      tags: [analysis]
+      summary: List bookmarked entry indices
+      operationId: listBookmarks
+      responses:
+        '200':
+          description: Sorted entry indices.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  indices:
+                    type: array
+                    items: { type: integer }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+    put:
+      tags: [analysis]
+      summary: Toggle a bookmark
+      operationId: toggleBookmark
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                index: { type: integer, minimum: 0 }
+                on:
+                  type: boolean
+                  description: Explicit state; omitted toggles.
+      responses:
+        '200':
+          description: New bookmark state and total.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  index: { type: integer }
+                  on: { type: boolean }
+                  total: { type: integer }
+        '400':
+          description: Invalid index.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/logs/{id}/bookmarks/next:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+      - name: from
+        in: query
+        schema: { type: integer, default: -1 }
+      - name: dir
+        in: query
+        schema: { type: string, enum: [next, prev], default: next }
+      - $ref: '#/components/parameters/filterId'
+    get:
+      tags: [analysis]
+      summary: Next/previous bookmark relative to a view position
+      operationId: nextBookmark
+      responses:
+        '200':
+          description: View index of the bookmark (or null).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vi: { type: integer, nullable: true }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/logs/{id}/parser:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+    post:
+      tags: [sources]
+      summary: Set a log4j-style conversion pattern and re-index
+      description: |
+        For streams the retained buffer is re-parsed and the pattern also
+        applies to newly appended lines. Patterns are per-source, in memory
+        only, and limited to 500 characters. Stream sources require the
+        mutation key. Not supported for merged views.
+      operationId: setParser
+      security:
+        - streamKey: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pattern]
+              properties:
+                pattern:
+                  type: string
+                  maxLength: 500
+                  example: '%d [%t] %-5p %c - %m'
+      responses:
+        '200':
+          description: Source re-indexed; `pattern`/`format` reflect the custom format.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceInfo' }
+        '400':
+          description: Pattern cannot be compiled, or merged view.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/StreamKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [sources]
+      summary: Restore format auto-detection
+      operationId: clearParser
+      security:
+        - streamKey: []
+        - {}
+      responses:
+        '200':
+          description: Auto-detection restored.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceInfo' }
+        '400':
+          description: Merged view.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/StreamKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    streamKey:
+      type: apiKey
+      in: header
+      name: x-stream-key
+      description: |
+        Server-to-server mutation credential (`STREAM_KEY`), or a scoped
+        `STREAM_TOKENS` entry (`token=channelPrefix`, `*`/empty prefix = all
+        channels). Never put it in browser code or embed URLs.
+    viewKeyHeader:
+      type: apiKey
+      in: header
+      name: x-view-key
+      description: Read credential when `VIEW_KEY` is configured.
+    viewKeyQuery:
+      type: apiKey
+      in: query
+      name: viewKey
+      description: Query-parameter form of the read credential.
+  parameters:
+    channel:
+      name: channel
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+      description: 1–128 URL-safe characters.
+    sourceId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+      description: Opaque source id returned by the streams lifecycle or `/api/logs` (e.g. `s:deployment-7f92`).
+    filterId:
+      name: filter
+      in: query
+      required: false
+      schema: { type: string }
+      description: Filter id from `POST /api/logs/{id}/filters`.
+  responses:
+    BadChannel:
+      description: Channel fails the `[A-Za-z0-9][A-Za-z0-9._:-]{0,127}` shape.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Unknown stream, source, or filter.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    StreamKeyRequired:
+      description: Invalid or missing `x-stream-key` header.
+      content:
+        application/json:
+          schema:
+            example: { error: invalid or missing x-stream-key header }
+            allOf:
+              - $ref: '#/components/schemas/Error'
+    ViewKeyRequired:
+      description: Invalid or missing view credential when `VIEW_KEY` is set.
+      content:
+        application/json:
+          schema:
+            example: { error: invalid or missing x-view-key header }
+            allOf:
+              - $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        code: { type: string }
+    StreamLimits:
+      type: object
+      properties:
+        maxEntries: { type: integer, default: 100000 }
+        maxBytes: { type: integer, default: 33554432 }
+        maxSources: { type: integer, default: 16 }
+        idleTtlSeconds: { type: integer, default: 3600 }
+        maxPayloadBytes: { type: integer, default: 2097152 }
+    StreamAck:
+      type: object
+      properties:
+        ok: { type: boolean }
+        id:
+          type: string
+          description: Opaque source id for the read endpoints.
+        count: { type: integer, description: Retained entry count }
+        stats:
+          type: array
+          items: { type: integer }
+          description: Per-level totals, [TRACE..FATAL].
+        bytes: { type: integer, description: Retained byte estimate }
+        created:
+          type: boolean
+          description: Present on the create (PUT) response.
+    StructuredEntry:
+      type: object
+      properties:
+        time:
+          oneOf:
+            - { type: integer, description: Epoch milliseconds }
+            - { type: string, format: date-time }
+        level:
+          type: string
+          enum: [TRACE, DEBUG, INFO, WARN, ERROR, FATAL]
+        thread: { type: string }
+        logger: { type: string }
+        message: { type: string }
+    EntryOut:
+      type: object
+      description: Compact grid shape.
+      properties:
+        i: { type: integer, description: Entry index in the source }
+        t: { type: integer, description: Epoch-millisecond timestamp }
+        lv: { type: integer, description: Level index, 0=TRACE … 5=FATAL }
+        th: { type: string, description: Thread }
+        lg: { type: string, description: Logger }
+        msg: { type: string, description: Parsed message }
+        raw: { type: string, description: Full raw entry text }
+        src:
+          type: string
+          description: Child source name (merged views only)
+        elapsed:
+          type: integer
+          nullable: true
+          description: Ms since the previous entry in the current view
+    Criteria:
+      type: object
+      properties:
+        levels:
+          type: array
+          items: { type: integer, minimum: 0, maximum: 5 }
+        threads:
+          type: array
+          items: { type: string }
+        loggers:
+          type: array
+          items: { type: string }
+        text: { type: string }
+        regex: { type: boolean }
+        caseSensitive: { type: boolean }
+        exclude: { type: boolean }
+        timeFrom: { type: integer, description: Epoch ms }
+        timeTo: { type: integer, description: Epoch ms }
+    FilterResult:
+      type: object
+      properties:
+        filterId: { type: string }
+        count: { type: integer }
+        stats:
+          type: array
+          items: { type: integer }
+    Rule:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        criteria: { $ref: '#/components/schemas/Criteria' }
+        actions:
+          type: object
+          properties:
+            highlight: { type: string }
+            bookmark: { type: boolean }
+            webhook: { type: string }
+        matchCount: { type: integer }
+        webhookErrors: { type: integer }
+    Report:
+      type: object
+      properties:
+        from: { type: integer, description: Epoch ms }
+        to: { type: integer, description: Epoch ms }
+        total: { type: integer }
+        buckets:
+          type: array
+          items:
+            type: object
+            properties:
+              t: { type: integer }
+              counts:
+                type: array
+                items: { type: integer }
+        series:
+          type: array
+          items:
+            type: array
+            items: { type: integer }
+          description: Per level (TRACE..FATAL), one count per bucket.
+        topLoggers:
+          type: array
+          items: { $ref: '#/components/schemas/NameCount' }
+        topThreads:
+          type: array
+          items: { $ref: '#/components/schemas/NameCount' }
+        topMessages:
+          type: array
+          items:
+            type: object
+            properties:
+              template: { type: string }
+              count: { type: integer }
+              example: { type: string }
+    NameCount:
+      type: object
+      properties:
+        name: { type: string }
+        count: { type: integer }
+    SourceInfo:
+      type: object
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [file, stream, merged]
+        name: { type: string }
+        path:
+          type: string
+          description: File sources only; points at the decompressed copy for gzipped files.
+        count: { type: integer }
+        stats:
+          type: array
+          items: { type: integer }
+          description: Per-level totals, [TRACE..FATAL].
+        threads:
+          type: array
+          items: { type: string }
+        loggers:
+          type: array
+          items: { type: string }
+        format: { type: string, description: Detected or custom format name }
+        pattern:
+          type: string
+          description: Active custom conversion pattern, if any.
+        gzipped: { type: boolean }
+        origin: { type: string, description: e.g. "watch" for monitor-opened sources }
+        bytes: { type: integer, description: Streams only }
+        lastActivityAt: { type: integer, description: Streams only, epoch ms }
+        rules:
+          type: array
+          items: { $ref: '#/components/schemas/Rule' }
+security:
+  - viewKeyHeader: []
+  - viewKeyQuery: []
+  - streamKey: []
+  - {}

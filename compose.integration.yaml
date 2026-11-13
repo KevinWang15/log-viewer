@@ -1,0 +1,23 @@
+services:
+  log-viewer:
+    image: "${LOG_VIEWER_IMAGE:-ghcr.io/kevinwang15/log-viewer:latest}"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${LOG_VIEWER_PORT:-5178}:5178"
+    environment:
+      STREAM_KEY: "${LOG_VIEWER_SERVICE_KEY}"
+      STREAM_MAX_ENTRIES: "${LOG_VIEWER_MAX_ENTRIES:-100000}"
+      STREAM_MAX_BYTES: "${LOG_VIEWER_MAX_BYTES:-33554432}"
+      STREAM_MAX_SOURCES: "${LOG_VIEWER_MAX_SOURCES:-16}"
+      STREAM_IDLE_TTL_SECONDS: "${LOG_VIEWER_IDLE_TTL_SECONDS:-3600}"
+      STREAM_MAX_PAYLOAD_BYTES: "${LOG_VIEWER_MAX_PAYLOAD_BYTES:-2097152}"
+      ENABLE_DEMO: "false"
+      ENABLE_SAMPLES: "false"
+      LOG_ROOT: /logs
+    volumes:
+      - log-viewer-logs:/logs:ro
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  log-viewer-logs:

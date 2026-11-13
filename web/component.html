@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>log-viewer — &lt;log-viewer&gt; component</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 16px;
+      }
+      log-viewer {
+        display: block;
+        height: 280px;
+        border: 1px solid #c9ccd1;
+        border-radius: 4px;
+        margin-bottom: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>&lt;log-viewer&gt; component harness</h1>
+    <p>
+      Two independent elements on one page. Query params:
+      <code>?server=http://host:5178&amp;channels=demo,demo-b</code>.
+    </p>
+    <div id="demos"></div>
+    <script type="module" src="/src/component.ts"></script>
+    <script>
+      const p = new URLSearchParams(location.search);
+      const server = p.get('server') || '';
+      const channels = (p.get('channels') || 'demo,demo-b').split(',');
+      for (const ch of channels) {
+        const el = document.createElement('log-viewer');
+        el.setAttribute('channel', ch.trim());
+        el.setAttribute('title', 'stream: ' + ch.trim());
+        if (server) el.setAttribute('server', server);
+        document.getElementById('demos').appendChild(el);
+      }
+    </script>
+  </body>
+</html>
