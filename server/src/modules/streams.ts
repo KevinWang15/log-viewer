@@ -11,29 +11,8 @@ import { StreamSpooler } from '../spool';
 import { StoreCapacityError } from '../store';
 import { StreamRegistry } from '../streams';
 import { startDemoStream } from '../demo';
+import type { StreamsApi, StreamsOptions } from '../options';
 import type { ModuleContext, ViewerModule } from '../module';
-
-export interface StreamsOptions {
-  maxSources?: number; // 0 = unlimited
-  maxEntries?: number; // per stream, 0 = unlimited
-  maxBytes?: number; // per stream, 0 = unlimited
-  // Streams idle this long (no producer and no subscriber) are removed. 0 = never.
-  idleTtlSeconds?: number;
-  // Persist stream entries to per-channel NDJSON files here; recovered on start.
-  spoolDir?: string;
-  // Keep a `demo` channel emitting sample lines.
-  demo?: boolean;
-  // Reported in capabilities; set by createLogViewer.
-  mutationAuth?: 'x-stream-key' | 'none' | 'custom';
-  maxPayloadBytes?: number;
-}
-
-export interface StreamsApi {
-  readonly registry: StreamRegistry;
-  // Appends lines (auto-parsed) or structured entries to a channel, creating it.
-  append(channel: string, items: string[] | StreamEntryInput[]): StreamSource;
-  delete(channel: string): Promise<boolean>;
-}
 
 const CHANNEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 

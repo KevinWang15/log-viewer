@@ -112,7 +112,8 @@ export function parseStreamTokens(raw: string | undefined): ScopedStreamToken[] 
 
 export function configFromEnv(env: Env, homeDir: string): EnvConfig {
   return {
-    port: Number(env.PORT) || DEFAULTS.port,
+    // PORT=0 picks a free port, as before; unset or invalid uses the default.
+    port: env.PORT !== undefined && env.PORT !== '' && Number.isFinite(Number(env.PORT)) ? Number(env.PORT) : DEFAULTS.port,
     logRoot: env.LOG_ROOT || homeDir,
     streamKey: env.STREAM_KEY || '',
     streamTokens: parseStreamTokens(env.STREAM_TOKENS),

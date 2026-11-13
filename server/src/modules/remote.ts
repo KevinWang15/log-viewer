@@ -3,12 +3,8 @@
 
 import { DEFAULTS } from '../config';
 import { RemoteSource } from '../sources';
+import type { RemoteOptions } from '../options';
 import type { ModuleContext, ViewerModule } from '../module';
-
-export interface RemoteOptions {
-  // Entries kept per mirror (oldest dropped first). 0 = unbounded.
-  maxEntries?: number;
-}
 
 export function remoteModule(ctx: ModuleContext, opts: RemoteOptions = {}): ViewerModule {
   const { router: app, store, wrap, sourceInfo } = ctx;

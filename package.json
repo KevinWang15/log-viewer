@@ -17,7 +17,8 @@
     "test:e2e:bridge": "npm run build && node e2e/embed-bridge.test.mjs",
     "test:e2e:component": "npm run build && node e2e/component.test.mjs",
     "test:cdp": "npm run build && node e2e/cdp-audit.mjs",
-    "test:e2e:prefix": "npm run build && node e2e/prefix.test.mjs"
+    "test:e2e:prefix": "npm run build && node e2e/prefix.test.mjs",
+    "pack:check": "node scripts/pack-check.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

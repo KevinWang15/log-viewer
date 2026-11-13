@@ -15,7 +15,7 @@ export { MemoryProvider } from './provider/memory';
 export type { MemoryProviderOptions } from './provider/memory';
 export { ProviderSource } from './provider/source';
 export type { ProviderSourceOptions, ProviderSourceState } from './provider/source';
-export type { ProvidersOptions } from './modules/providers';
+export type { ProvidersOptions } from './options';
 
 export { keyAuthorizer } from './auth';
 export type { AuthAction, AuthContext, AuthDecision, Authorizer, KeyAuthOptions } from './auth';
@@ -23,11 +23,7 @@ export type { AuthAction, AuthContext, AuthDecision, Authorizer, KeyAuthOptions 
 export type { AppendEvent, Criteria, EntryOut, LogSource } from './source-api';
 export { BaseSource } from './sources';
 export type { StreamEntryInput } from './sources';
-export type { StreamsOptions, StreamsApi } from './modules/streams';
-export type { FilesOptions, FileOpener } from './modules/files';
-export type { RemoteOptions } from './modules/remote';
-/** @experimental */
-export type { ModuleContext, ViewerModule } from './module';
+export type { FileOpener, FilesOptions, Logger, RemoteOptions, StreamsApi, StreamsOptions } from './options';
 
 export { configFromEnv, DEFAULTS, ENV_VARS } from './config';
 export type { EnvConfig, ScopedStreamToken } from './config';

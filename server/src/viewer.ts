@@ -19,13 +19,14 @@ import { DEFAULTS, ScopedStreamToken } from './config';
 import type { LogSource } from './source-api';
 import { Store, StoreCapacityError } from './store';
 import { WsHub } from './ws-hub';
-import type { Logger, ModuleContext, ViewerModule } from './module';
+import type { ModuleContext, ViewerModule } from './module';
 import { coreModule, ruleInfo } from './modules/core';
-import { FileOpener, filesModule, FilesOptions } from './modules/files';
-import { StreamsApi, streamsModule, StreamsOptions } from './modules/streams';
+import { filesModule } from './modules/files';
+import { streamsModule } from './modules/streams';
 import { mergeModule } from './modules/merge';
-import { remoteModule, RemoteOptions } from './modules/remote';
-import { ProvidersApi, providersModule, ProvidersOptions } from './modules/providers';
+import { remoteModule } from './modules/remote';
+import { providersModule } from './modules/providers';
+import type { FileOpener, FilesOptions, Logger, ProvidersApi, ProvidersOptions, RemoteOptions, StreamsApi, StreamsOptions } from './options';
 import type { LogProvider } from './provider/spi';
 
 export interface LogViewerOptions {

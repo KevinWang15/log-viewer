@@ -10,25 +10,8 @@ import { FileLogSource, isGzipFile } from '../sources';
 import type { LogSource } from '../source-api';
 import { ensureSampleLogs } from '../sample';
 import { DirectoryWatcher, startDirectoryWatch } from '../watch';
+import type { FileOpener, FilesOptions } from '../options';
 import type { ModuleContext, ViewerModule } from '../module';
-
-export interface FilesOptions {
-  // Directory users may browse and open files from.
-  root: string;
-  // Sample logs directory (also browsable): true = generate into
-  // `<root>/sample-logs`, a string = generate into that directory.
-  samples?: boolean | string;
-  // Auto-open files under root matching any glob (polling).
-  watch?: { globs: string[]; intervalMs?: number; maxSources?: number };
-  // Cap on the decompressed size of gzipped logs.
-  gzipMaxBytes?: number;
-}
-
-export interface FileOpener {
-  // Opens (or returns the already open) source for a file path and optional
-  // byte range. Errors carry an HTTP `status`.
-  open(filePath: string, range?: { start?: number; end?: number }, origin?: string): Promise<LogSource>;
-}
 
 function httpError(status: number, message: string) {
   return Object.assign(new Error(message), { status });

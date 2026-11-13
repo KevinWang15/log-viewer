@@ -4,23 +4,8 @@
 import { DEFAULTS } from '../config';
 import { ProviderSource, providerSourceId, ProviderSourceOptions } from '../provider/source';
 import { LogDescriptor, LogProvider, PROVIDER_API_VERSION, ProviderError } from '../provider/spi';
+import type { ProvidersApi, ProvidersOptions } from '../options';
 import type { ModuleContext, ViewerModule } from '../module';
-
-export interface ProvidersOptions extends Omit<ProviderSourceOptions, 'logger'> {
-  providers?: LogProvider[];
-  // Max provider logs open at once (0 = unlimited).
-  maxOpen?: number;
-  // Logs opened at start().
-  autoOpen?: Array<{ provider: string; log: string }>;
-  // How long a provider's catalog is cached.
-  catalogTtlMs?: number;
-}
-
-export interface ProvidersApi {
-  register(provider: LogProvider): void;
-  // Opens (or returns the already open) mirror of a provider log.
-  open(providerId: string, logId: string): Promise<ProviderSource>;
-}
 
 const ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
 

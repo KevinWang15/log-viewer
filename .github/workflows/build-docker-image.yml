@@ -39,6 +39,12 @@ jobs:
       - name: Build application
         run: npm run build
 
+      - name: Verify the npm package (contents, CJS/ESM, types, CLI)
+        run: npm run pack:check
+
+      - name: UI mounted under a prefix of a host app
+        run: CHROME="$(command -v google-chrome)" npm run test:e2e:prefix
+
       - name: Run CDP browser quality audit
         run: |
           set -euo pipefail

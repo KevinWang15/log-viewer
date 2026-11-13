@@ -9,7 +9,8 @@ import type { LogSource } from './source-api';
 import type { Store } from './store';
 import type { WsHub, WsMessageContext } from './ws-hub';
 
-export type Logger = Pick<Console, 'log' | 'warn' | 'error'>;
+import type { Logger } from './options';
+export type { Logger };
 
 export interface ModuleContext {
   router: Express;
