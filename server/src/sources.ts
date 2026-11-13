@@ -25,8 +25,8 @@ import { EntryBuffer } from './entry-buffer';
 
 export type { AppendEvent, Criteria, EntryOut, LogSource } from './source-api';
 
-const MAX_ENTRY_BYTES = 64 * 1024;
-const MAX_METADATA_BYTES = 4 * 1024;
+export const MAX_ENTRY_BYTES = 64 * 1024;
+export const MAX_METADATA_BYTES = 4 * 1024;
 const MAX_FORMAT_DETECTION_BYTES = 256 * 1024;
 const SCAN_BLOCK = 4 * 1024 * 1024;
 const INDEX_INITIAL_CAPACITY = 1024;
@@ -77,7 +77,7 @@ export async function gunzipToTempFile(gzPath: string, maxBytes: number = DEFAUL
   }
 }
 
-function truncateUtf8(value: string, maxBytes: number, suffix = '\n… (entry truncated)'): string {
+export function truncateUtf8(value: string, maxBytes: number, suffix = '\n… (entry truncated)'): string {
   if (Buffer.byteLength(value) <= maxBytes) return value;
   const suffixBytes = Buffer.byteLength(suffix);
   if (suffixBytes >= maxBytes) return Buffer.from(suffix).subarray(0, maxBytes).toString('utf8');

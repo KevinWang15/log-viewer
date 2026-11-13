@@ -84,7 +84,7 @@ test('mounts under a prefix with WS on a custom path next to a host WS server', 
     assert.equal(await (await fetch(base + '/')).text(), 'host home');
     const caps = await (await fetch(base + '/logs/api/v1/capabilities')).json();
     assert.equal(caps.apiVersion, 'v1');
-    assert.deepEqual(Object.keys(caps.modules).sort(), ['merge', 'streams']);
+    assert.deepEqual(Object.keys(caps.modules).sort(), ['merge', 'providers', 'streams']);
 
     viewer.streams!.append('app', ['2026-07-13 10:00:00,000 [Main] INFO App - one']);
     const sub = wsFrames(wsBase + '/logs/ws');

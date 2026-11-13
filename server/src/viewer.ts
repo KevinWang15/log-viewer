@@ -25,6 +25,8 @@ import { FileOpener, filesModule, FilesOptions } from './modules/files';
 import { StreamsApi, streamsModule, StreamsOptions } from './modules/streams';
 import { mergeModule } from './modules/merge';
 import { remoteModule, RemoteOptions } from './modules/remote';
+import { ProvidersApi, providersModule, ProvidersOptions } from './modules/providers';
+import type { LogProvider } from './provider/spi';
 
 export interface LogViewerOptions {
   // Built-in key scheme (see auth.ts). Ignored when `authorize` is given.
@@ -44,6 +46,10 @@ export interface LogViewerOptions {
   merge?: boolean;
   // Mirrors of sources on peer log-viewer instances. Disabled by default.
   remote?: false | RemoteOptions;
+  // Your log storage behind the provider SPI (see provider/spi.ts).
+  providers?: LogProvider[];
+  // Mirror limits, polling, catalog cache and auto-open for provider logs.
+  providerOptions?: Omit<ProvidersOptions, 'providers'>;
   // Serve the web UI: true (default) uses the bundled build, or { dir }.
   ui?: boolean | { dir: string };
   // Reported as serviceVersion in capabilities.
@@ -73,6 +79,10 @@ export interface LogViewer {
   readonly streams?: StreamsApi;
   // Programmatic file opening (when files are enabled).
   readonly files?: FileOpener;
+  // Registers a provider after creation (its logs appear in the catalog).
+  registerProvider(provider: LogProvider): void;
+  // Opens (or returns) the live mirror of a provider log.
+  openProviderLog(providerId: string, logId: string): Promise<LogSource>;
   /** @experimental The underlying store (sources, filters, rules, bookmarks). */
   readonly store: Store;
 }
@@ -231,6 +241,8 @@ export function createLogViewer(options: LogViewerOptions = {}): LogViewer {
   if (files) modules.push(files);
   if (options.merge !== false) modules.push(mergeModule(ctx));
   if (options.remote) modules.push(remoteModule(ctx, options.remote));
+  const providers: ViewerModule & ProvidersApi = providersModule(ctx, { ...options.providerOptions, providers: options.providers });
+  modules.push(providers);
 
   router.get('/api/v1/capabilities', (_req, res) => {
     res.setHeader('cache-control', 'no-store');
@@ -315,6 +327,8 @@ export function createLogViewer(options: LogViewerOptions = {}): LogViewer {
         await new Promise<void>((resolve) => server.close(() => resolve()));
       }
     },
+    registerProvider: (p) => providers.register(p),
+    openProviderLog: (pid, logId) => providers.open(pid, logId),
     addSource(src, opts) {
       store.addSource(src, opts?.alias);
       if (opts?.origin) store.setOrigin(src.id, opts.origin);
