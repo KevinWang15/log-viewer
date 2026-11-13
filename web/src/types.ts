@@ -8,6 +8,7 @@ export interface EntryOut {
   raw: string;
   src?: string;
   elapsed?: number | null;
+  fields?: Record<string, string>;
 }
 
 export interface ServerRule {
@@ -53,6 +54,8 @@ export interface Criteria {
   exclude?: boolean;
   timeFrom?: number;
   timeTo?: number;
+  // key -> accepted values (OR within a key, AND across keys)
+  fields?: Record<string, string[]>;
 }
 
 export interface FilterResult {

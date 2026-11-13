@@ -2,6 +2,8 @@
 // A "format" knows how to recognize the first line of a log entry (isStart)
 // and how to extract time / thread / level / logger / message from it.
 
+import { normalizeFields } from './fields';
+
 export const LEVEL_NAMES = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'] as const;
 
 export function levelFromString(s?: string): number {
@@ -22,6 +24,8 @@ export interface ParsedLine {
   thread?: string;
   logger?: string;
   message: string;
+  // Structured fields (JSON lines: the keys not mapped above).
+  fields?: Record<string, string>;
 }
 
 export interface LogFormat {
@@ -172,10 +176,15 @@ const JSON_LEVEL_KEYS = ['level', 'severity', 'lvl', 'loglevel'];
 const JSON_THREAD_KEYS = ['thread', 'threadName', 'tid'];
 const JSON_LOGGER_KEYS = ['logger', 'name', 'loggerName', 'source', 'application', 'category'];
 
-function pick(obj: Record<string, unknown>, keys: string[]): string | undefined {
+function pick(obj: Record<string, unknown>, keys: string[], used?: Set<string>): string | undefined {
   for (const k of keys) {
-    const v = obj[k] ?? obj[k.toLowerCase()] ?? obj[k.toUpperCase()];
-    if (v !== undefined && v !== null) return String(v);
+    for (const key of [k, k.toLowerCase(), k.toUpperCase()]) {
+      const v = obj[key];
+      if (v !== undefined && v !== null) {
+        used?.add(key);
+        return String(v);
+      }
+    }
   }
   return undefined;
 }
@@ -188,13 +197,19 @@ const jsonIsStart = (line: string): boolean => {
 const jsonParse = (line: string): ParsedLine => {
   try {
     const o = JSON.parse(line) as Record<string, unknown>;
-    return {
-      time: pick(o, JSON_TIME_KEYS),
-      level: pick(o, JSON_LEVEL_KEYS),
-      thread: pick(o, JSON_THREAD_KEYS),
-      logger: pick(o, JSON_LOGGER_KEYS),
-      message: pick(o, JSON_MSG_KEYS) ?? line,
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return { message: line };
+    const used = new Set<string>();
+    const parsed: ParsedLine = {
+      time: pick(o, JSON_TIME_KEYS, used),
+      level: pick(o, JSON_LEVEL_KEYS, used),
+      thread: pick(o, JSON_THREAD_KEYS, used),
+      logger: pick(o, JSON_LOGGER_KEYS, used),
+      message: pick(o, JSON_MSG_KEYS, used) ?? line,
     };
+    // Every other key is a field (status, tenant, durationMs, ...).
+    const fields = normalizeFields(o, used);
+    if (fields) parsed.fields = fields;
+    return parsed;
   } catch {
     return { message: line };
   }

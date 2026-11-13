@@ -256,7 +256,7 @@ the signal cannot block shutdown.
 | `thread` | `string?` | Thread or worker name. Filterable. |
 | `logger` | `string?` | Logger or component name. Filterable. |
 | `raw` | `string?` | Text used for search, text filters, export and correlation. Defaults to `message`. |
-| `fields` | `Record<string, string \| number \| boolean \| null>?` | Reserved for structured fields. Not used in v1. |
+| `fields` | `Record<string, string \| number \| boolean \| null>?` | Structured fields, e.g. columns of your table (`{ tenant: 'acme', status: 500 }`). Stored as strings, shown in the detail pane and filterable by exact value. At most 32 per record. |
 
 The viewer truncates `message` and `raw` to 64 KiB and `thread` and `logger`
 to 4 KiB. Records without a cursor or without a string `message` are dropped
@@ -556,6 +556,5 @@ providers that declare a version it does not implement.
 `count`, `query` and `search` are reserved, both as `ProviderCapabilities`
 flags and as future optional `LogHandle` methods. They are placeholders for
 query pushdown, where the viewer would ask the storage to count or search
-instead of scanning the mirror. Version 1 never calls them, and the `fields`
-record property is likewise reserved. Do not use these names for other
-purposes.
+instead of scanning the mirror. Version 1 never calls them. Do not use these
+names for other purposes.

@@ -92,10 +92,32 @@ Events, dispatched on the element and bubbling:
 | `log-viewer-ready` | `null` | once, after the initial load |
 | `log-viewer-entry-selected` | `{ entry: { t, lv, th, lg, msg } }` | the user selects a row |
 | `log-viewer-stats` | `{ count, levels }` | after live updates, at most once per animation frame |
+| `log-viewer-filter-changed` | `{ criteria, source }` | the filter changed; `source` is `'user'` or `'api'` (your own `criteria` assignment) |
 
 ```js
 document.querySelector('log-viewer').addEventListener('log-viewer-entry-selected', (e) => {
   console.log(e.detail.entry.msg);
+});
+```
+
+The filter is the `criteria` property, with the same shape as the HTTP
+filter criteria (`levels`, `text`, `threads`, `loggers`, `fields`,
+`timeFrom`, `timeTo`). Assigning replaces it; reading returns the current
+one. Clicking a field in the detail pane adds it to the filter.
+
+```js
+const viewer = document.querySelector('log-viewer');
+viewer.criteria = { levels: [4, 5], fields: { tenant: ['acme'] } };
+```
+
+The element never writes the filter anywhere: not to the URL, not to
+storage. To keep it in your router or state, listen to
+`log-viewer-filter-changed` and ignore `source: 'api'` changes you made
+yourself:
+
+```js
+viewer.addEventListener('log-viewer-filter-changed', (e) => {
+  if (e.detail.source === 'user') router.replace({ query: { filter: JSON.stringify(e.detail.criteria) } });
 });
 ```
 
@@ -126,6 +148,7 @@ Host to widget:
 
 | Message | Effect |
 |---|---|
+| `{ logViewer: 'setCriteria', criteria: object }` | Replaces the filter (same shape as the element's `criteria`). |
 | `{ logViewer: 'setFilter', text: string }` | Applies a text filter, like typing in the filter box and pressing Enter. |
 | `{ logViewer: 'setFollow', follow: boolean }` | Turns following the tail on or off. |
 | `{ logViewer: 'clear' }` | Clears the text filter. |
@@ -137,6 +160,7 @@ Widget to host:
 | `{ logViewer: 'ready' }` | once, after the initial load |
 | `{ logViewer: 'entrySelected', entry: { t, lv, th, lg, msg } }` | the user selects a row. `t` is epoch ms, `lv` the level (0 = TRACE to 5 = FATAL), `th` and `lg` thread and logger, `msg` the first line of the message. The raw entry text is never sent. |
 | `{ logViewer: 'stats', count, levels }` | after live updates, at most once per animation frame. `count` is the number of rows in the current view (after filters), `levels` the per-level totals of the whole source. |
+| `{ logViewer: 'filterChanged', criteria, source }` | the filter changed. `source` is `'user'`, or `'api'` after your `setCriteria`. The widget never puts the filter in its URL; keep it in the host if you want deep links. |
 
 Host page example, with the viewer proxied under `/log-viewer/` on the same
 origin `https://app.example.com`:

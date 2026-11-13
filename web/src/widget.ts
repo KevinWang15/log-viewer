@@ -16,7 +16,7 @@ import { LEVEL_COLORS, LEVEL_NAMES } from './types';
 import { escapeHtml, fmtNum } from './util';
 import { icon, logoMark } from './icons';
 
-export type WidgetEventName = 'ready' | 'entrySelected' | 'stats';
+export type WidgetEventName = 'ready' | 'entrySelected' | 'stats' | 'filterChanged';
 
 export interface WidgetOptions {
   channel?: string | null;
@@ -24,10 +24,17 @@ export interface WidgetOptions {
   title?: string;
   follow?: boolean; // default true
   pattern?: string | null;
+  // Initial filter (same shape as setCriteria).
+  criteria?: Criteria;
   onEvent?: (name: WidgetEventName, detail?: Record<string, unknown>) => void;
 }
 
 export interface WidgetHandle {
+  // Replaces the whole filter: levels, text, threads, loggers, fields, time
+  // range. The widget never writes it anywhere (URL, storage); listen to the
+  // filterChanged event to keep it in your own state or router.
+  setCriteria(criteria: Criteria): void;
+  getCriteria(): Criteria;
   setFilter(text: string): void;
   setFollow(follow: boolean): void;
   clearFilter(): void;
@@ -71,7 +78,7 @@ export function mountLogWidget(root: HTMLElement, opts: WidgetOptions): WidgetHa
   const detail = $('#em-detail');
   renderDetail(detail, null);
   grid.onSelect = (e) => {
-    renderDetail(detail, e);
+    renderDetail(detail, e, { onField: (k, v) => addField(k, v) });
     if (e) {
       // Only user-visible fields cross the host boundary, never the raw line.
       onEvent('entrySelected', { entry: { t: e.t, lv: e.lv, th: e.th, lg: e.lg, msg: e.msg } });
@@ -82,6 +89,8 @@ export function mountLogWidget(root: HTMLElement, opts: WidgetOptions): WidgetHa
     info: null as SourceInfo | null,
     levels: new Set<number>(),
     text: '',
+    // The rest of the criteria (threads, loggers, fields, time range, flags).
+    rest: {} as Omit<Criteria, 'levels' | 'text'>,
     filterId: null as string | null,
     viewCount: 0,
     follow: opts.follow !== false,
@@ -115,18 +124,34 @@ export function mountLogWidget(root: HTMLElement, opts: WidgetOptions): WidgetHa
   // "Filter by correlation" (GET /api/logs/:id/correlate) is standalone-UI only:
   // the widget stays compact and has no per-entry context menu, and hosts can
   // reach the same result via the filter controls / host commands.
-  async function applyFilter() {
+  function criteria(): Criteria {
+    const c: Criteria = { ...st.rest };
+    if (st.levels.size > 0 && st.levels.size < 6) c.levels = [...st.levels].sort((a, b) => a - b);
+    if (st.text) c.text = st.text;
+    return c;
+  }
+
+  // Criteria are validated by the server; the widget only splits out the
+  // parts its own toolbar shows (level dots, text box).
+  function setState(c: Criteria) {
+    const { levels, text, ...rest } = c ?? {};
+    st.levels = new Set(levels ?? []);
+    if (st.levels.size === 6) st.levels.clear();
+    st.text = (text ?? '').trim();
+    st.rest = rest;
+    searchInput.value = st.text;
+  }
+
+  async function applyFilter(source: 'user' | 'api' = 'user') {
     const info = st.info;
     if (!info) return;
     const revision = ++filterRevision;
     const anchor = grid.captureAnchor();
-    const c: Criteria = {};
-    if (st.levels.size > 0 && st.levels.size < 6) c.levels = [...st.levels];
-    if (st.text) c.text = st.text;
+    const c = criteria();
     const old = st.filterId;
     let nextFilter: string | null = null;
     let nextCount = info.count;
-    if (!c.levels && !c.text) {
+    if (Object.keys(c).length === 0) {
       nextFilter = null;
     } else {
       try {
@@ -154,7 +179,20 @@ export function mountLogWidget(root: HTMLElement, opts: WidgetOptions): WidgetHa
     else if (st.follow) grid.scrollToBottom();
     renderStatus();
     syncToolbar();
+    // `source` tells hosts that sync the filter to their own state whether
+    // the change came from the user or from their setCriteria call.
+    onEvent('filterChanged', { criteria: c, source });
   }
+
+  // Field chips in the detail pane add "key = value" to the filter.
+  const addField = (key: string, value: string) => {
+    const fields = { ...(st.rest.fields ?? {}) };
+    const values = new Set(fields[key] ?? []);
+    values.add(value);
+    fields[key] = [...values];
+    st.rest = { ...st.rest, fields };
+    void applyFilter();
+  };
 
   $('#em-follow').addEventListener('click', () => {
     st.follow = !st.follow;
@@ -184,6 +222,7 @@ export function mountLogWidget(root: HTMLElement, opts: WidgetOptions): WidgetHa
       void applyFilter();
     }
   });
+  if (opts.criteria) setState(opts.criteria);
 
   function applyWs(msg: WsAppendMsg) {
     if (!st.info || msg.id !== st.info.id) return;
@@ -226,6 +265,7 @@ export function mountLogWidget(root: HTMLElement, opts: WidgetOptions): WidgetHa
       grid.reset(info.count);
       if (st.follow) grid.scrollToBottom();
       ws.sub(info.id);
+      if (Object.keys(criteria()).length) void applyFilter('api');
       // A pattern option overrides stream parsing once subscribed. Fire and
       // forget: a rejection (e.g. 400 invalid pattern, 401 when stream
       // mutations require a key) is surfaced in the status line.
@@ -245,10 +285,15 @@ export function mountLogWidget(root: HTMLElement, opts: WidgetOptions): WidgetHa
   void boot();
 
   return {
+    setCriteria(c: Criteria) {
+      setState(c);
+      void applyFilter('api');
+    },
+    getCriteria: () => criteria(),
     setFilter(text: string) {
       searchInput.value = text;
       st.text = text.trim();
-      void applyFilter();
+      void applyFilter('api');
     },
     setFollow(follow: boolean) {
       st.follow = follow;
@@ -257,9 +302,8 @@ export function mountLogWidget(root: HTMLElement, opts: WidgetOptions): WidgetHa
       syncToolbar();
     },
     clearFilter() {
-      searchInput.value = '';
-      st.text = '';
-      void applyFilter();
+      setState({});
+      void applyFilter('api');
     },
     destroy() {
       ws.close();

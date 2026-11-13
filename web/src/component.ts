@@ -22,6 +22,7 @@
 import widgetCss from './styles.css?inline';
 import * as api from './api';
 import { mountLogWidget, type WidgetHandle } from './widget';
+import type { Criteria } from './types';
 
 // The shared stylesheet targets document-level selectors; remap them onto the
 // shadow host and add the sizing the document styles would normally provide.
@@ -46,6 +47,17 @@ const SHADOW_CSS =
 class LogViewerElement extends HTMLElement {
   static observedAttributes = ['channel', 'server', 'title', 'follow', 'pattern', 'view-key'];
   private handle: WidgetHandle | null = null;
+  private pending: Criteria | null = null;
+
+  // The filter. Assigning replaces it. The element never stores it (no URL
+  // or storage); listen to log-viewer-filter-changed to keep it yourself.
+  get criteria(): Criteria {
+    return this.handle?.getCriteria() ?? this.pending ?? {};
+  }
+  set criteria(c: Criteria) {
+    if (this.handle) this.handle.setCriteria(c);
+    else this.pending = c;
+  }
 
   connectedCallback() {
     if (!this.shadowRoot) {
@@ -72,6 +84,9 @@ class LogViewerElement extends HTMLElement {
   }
 
   private mount() {
+    // A re-mount (attribute change) keeps the current filter.
+    const keep = this.handle?.getCriteria() ?? this.pending ?? undefined;
+    this.pending = null;
     this.handle?.destroy();
     const server = this.getAttribute('server') || '';
     api.setBase(server);
@@ -82,9 +97,10 @@ class LogViewerElement extends HTMLElement {
       title: this.getAttribute('title') || undefined,
       follow: this.getAttribute('follow') !== '0',
       pattern: this.getAttribute('pattern'),
+      criteria: keep,
       onEvent: (name, detail) =>
         this.dispatchEvent(
-          new CustomEvent('log-viewer-' + (name === 'entrySelected' ? 'entry-selected' : name), {
+          new CustomEvent('log-viewer-' + name.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase()), {
             detail: detail ?? null,
             bubbles: true,
           })

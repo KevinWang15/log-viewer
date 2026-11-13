@@ -722,6 +722,76 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '401': { $ref: '#/components/responses/ViewKeyRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/logs/{id}/fields:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+    get:
+      tags: [analysis]
+      summary: Field keys of the log with entry counts
+      description: >-
+        In-memory sources scan every retained entry (up to 1,000,000); files
+        read the newest 50,000 entries and report `sampled: true`.
+      operationId: listFieldKeys
+      responses:
+        '200':
+          description: Keys, most common first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key: { type: string }
+                        count: { type: integer }
+                  sampled: { type: boolean }
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/logs/{id}/values:
+    parameters:
+      - $ref: '#/components/parameters/sourceId'
+      - name: key
+        in: query
+        description: A structured field key. Give `key` or `field`.
+        schema: { type: string }
+      - name: field
+        in: query
+        description: Thread or logger instead of a structured field.
+        schema: { type: string, enum: [thread, logger] }
+      - name: q
+        in: query
+        description: Case-insensitive substring the values must contain.
+        schema: { type: string }
+      - name: limit
+        in: query
+        schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    get:
+      tags: [analysis]
+      summary: Most common values of a field, for suggestions
+      operationId: listFieldValues
+      responses:
+        '200':
+          description: Values with entry counts, most common first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  values:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        value: { type: string }
+                        count: { type: integer }
+                  sampled: { type: boolean }
+        '400':
+          description: Neither `key` nor `field` given.
+        '401': { $ref: '#/components/responses/ViewKeyRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/logs/{id}/locate:
     parameters:
       - $ref: '#/components/parameters/sourceId'
@@ -1315,6 +1385,11 @@ components:
         thread: { type: string }
         logger: { type: string }
         message: { type: string, description: Full text; the first line is shown in the grid }
+        fields:
+          type: object
+          additionalProperties: { nullable: true, oneOf: [{ type: string }, { type: number }, { type: boolean }] }
+          description: Structured fields. Other top-level keys with primitive values become fields too. Stored as strings.
+      additionalProperties: true
     EntryOut:
       type: object
       description: Compact grid shape.
@@ -1333,6 +1408,10 @@ components:
           type: integer
           nullable: true
           description: Ms since the previous entry in the current view
+        fields:
+          type: object
+          additionalProperties: { type: string }
+          description: Structured fields, when the entry has any
     Criteria:
       type: object
       properties:
@@ -1351,6 +1430,14 @@ components:
         exclude: { type: boolean }
         timeFrom: { type: integer, description: Epoch ms }
         timeTo: { type: integer, description: Epoch ms }
+        fields:
+          type: object
+          description: Exact-match field filter. Values of one key are alternatives (OR); all keys must match (AND). A single string means one value.
+          additionalProperties:
+            oneOf:
+              - { type: array, items: { type: string } }
+              - { type: string }
+          example: { tenant: [acme, globex], status: ['500'] }
     FilterResult:
       type: object
       properties:

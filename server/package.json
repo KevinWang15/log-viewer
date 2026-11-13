@@ -1,6 +1,6 @@
 {
   "name": "@kevinwang15/log-viewer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Fast log viewer for the browser: tail, filter and search large log files, live streams and your own log storage (databases, services) through a list+watch provider API.",
   "license": "MIT",
   "author": "Ke Wang",
@@ -58,7 +58,8 @@
     "build": "tsc -p .",
     "start": "node dist/index.js",
     "test": "tsx --test test/*.test.ts",
-    "prepack": "node scripts/prepack.mjs"
+    "prepack": "node scripts/prepack.mjs",
+    "postpack": "node scripts/postpack.mjs"
   },
   "dependencies": {
     "cors": "^2.8.5",

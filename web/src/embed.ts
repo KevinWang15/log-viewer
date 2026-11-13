@@ -22,6 +22,7 @@
 import './styles.css';
 import * as api from './api';
 import { mountLogWidget } from './widget';
+import type { Criteria } from './types';
 
 const params = new URLSearchParams(location.search);
 const server = params.get('server') || '';
@@ -61,13 +62,17 @@ window.addEventListener('message', (ev) => {
   if (!allowedOrigins.length) return;
   if (ev.source !== window.parent) return;
   if (!allowedOrigins.includes(ev.origin)) return;
-  const d = ev.data as { logViewer?: unknown; text?: unknown; follow?: unknown } | null;
+  const d = ev.data as { logViewer?: unknown; text?: unknown; follow?: unknown; criteria?: unknown } | null;
   if (!d || typeof d !== 'object' || typeof d.logViewer !== 'string') return;
   eventOrigin = ev.origin;
   switch (d.logViewer) {
     case 'setFilter':
       if (typeof d.text !== 'string') return;
       widget.setFilter(d.text);
+      break;
+    case 'setCriteria':
+      if (!d.criteria || typeof d.criteria !== 'object') return;
+      widget.setCriteria(d.criteria as Criteria);
       break;
     case 'setFollow':
       if (typeof d.follow !== 'boolean') return;

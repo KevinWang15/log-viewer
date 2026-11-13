@@ -44,6 +44,24 @@ const post = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
+export interface ValueCount {
+  value: string;
+  count: number;
+}
+
+export const fieldKeys = (id: string) =>
+  req<{ keys: Array<{ key: string; count: number }>; sampled: boolean }>(`/api/logs/${encodeURIComponent(id)}/fields`);
+
+// Most common values of thread/logger (`field`) or of a structured field (`key`).
+export const fieldValues = (id: string, which: { field?: 'thread' | 'logger'; key?: string }, q = '', limit = 50) => {
+  const params = new URLSearchParams({ q, limit: String(limit) });
+  if (which.field) params.set('field', which.field);
+  if (which.key) params.set('key', which.key);
+  return req<{ values: ValueCount[]; sampled: boolean }>(
+    `/api/logs/${encodeURIComponent(id)}/values?${params}`
+  );
+};
+
 export const capabilities = () => req<Capabilities>('/api/v1/capabilities');
 
 export const providerLogs = (providerId: string) =>

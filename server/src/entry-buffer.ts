@@ -8,6 +8,7 @@
 // enforceRetention() reports that it dropped anything.
 
 import type { EntryOut } from './source-api';
+import { fieldsBytes } from './fields';
 
 export interface RetentionPolicy {
   maxEntries: number; // 0 = unbounded
@@ -64,7 +65,8 @@ export class EntryBuffer {
     const rawBytes = Buffer.byteLength(e.raw);
     this.entryRawBytes.push(rawBytes);
     // The fixed allowance covers numbers, object fields and allocator overhead.
-    const bytes = 64 + rawBytes + Buffer.byteLength(e.msg) + Buffer.byteLength(e.th) + Buffer.byteLength(e.lg);
+    const bytes =
+      64 + rawBytes + Buffer.byteLength(e.msg) + Buffer.byteLength(e.th) + Buffer.byteLength(e.lg) + fieldsBytes(e.fields);
     this.entryBytes.push(bytes);
     this.retained += bytes;
     this.track(e);

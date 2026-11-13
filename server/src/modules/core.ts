@@ -4,7 +4,8 @@
 
 import { compilePattern, LEVEL_NAMES, LogFormat } from '../parser';
 import { textTester } from '../sources';
-import type { Criteria } from '../source-api';
+import type { Criteria, LogSource } from '../source-api';
+import { fieldsCriteria } from '../fields';
 import { RuleActions, RuleEntry, RuleLimitError } from '../store';
 import type { ModuleContext, ViewerModule } from '../module';
 
@@ -27,10 +28,12 @@ const MAX_RULE_NAME_LENGTH = 200;
 // Validates the POST body; returns either the parsed pieces or a 400 message.
 function ruleInput(body: unknown): { name?: string; criteria: Criteria; actions: RuleActions } | { error: string } {
   const raw = (body ?? {}) as Record<string, unknown>;
-  const criteria = (raw.criteria ?? {}) as Criteria;
-  if (typeof criteria !== 'object' || criteria === null || Array.isArray(criteria)) {
+  const input = raw.criteria ?? {};
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     return { error: 'criteria must be an object' };
   }
+  const criteria = { ...(input as Criteria) };
+  criteria.fields = fieldsCriteria(criteria.fields);
   const rawActions = (raw.actions ?? {}) as Record<string, unknown>;
   if (typeof rawActions !== 'object' || rawActions === null || Array.isArray(rawActions)) {
     return { error: 'actions must be an object' };
@@ -185,7 +188,8 @@ export function coreModule(ctx: ModuleContext): ViewerModule {
       const src = sourceOr404(req, res);
       if (!src) return;
       if (!(await allow(req, res, 'view-state', { source: src }))) return;
-      const criteria: Criteria = req.body?.criteria ?? req.body ?? {};
+      const criteria: Criteria = { ...(req.body?.criteria ?? req.body ?? {}) };
+      criteria.fields = fieldsCriteria(criteria.fields);
       let f;
       try {
         f = await store.createFilter(src, criteria);
@@ -526,6 +530,83 @@ export function coreModule(ctx: ModuleContext): ViewerModule {
         return;
       }
       res.json(report);
+    })
+  );
+
+  // ---- Field keys and values (filter bar suggestions) -------------------------
+
+  // Visits the fields of the newest entries: all of them for sources that keep
+  // fields in memory (up to MAX_FIELD_SCAN), the newest FIELD_SAMPLE entries
+  // otherwise (files read them from disk). Returns whether it sampled.
+  const MAX_FIELD_SCAN = 1_000_000;
+  const FIELD_SAMPLE = 50_000;
+  async function visitFields(src: LogSource, cb: (fields: Record<string, string> | undefined) => void): Promise<boolean> {
+    const n = src.count;
+    const fieldsAt = src.fieldsAt?.bind(src);
+    const start = Math.max(0, n - (fieldsAt ? MAX_FIELD_SCAN : FIELD_SAMPLE));
+    if (fieldsAt) {
+      for (let i = start; i < n; i++) cb(fieldsAt(i));
+    } else {
+      const BATCH = 1000;
+      for (let s = start; s < n; s += BATCH) {
+        const idxs: number[] = [];
+        for (let i = s; i < Math.min(n, s + BATCH); i++) idxs.push(i);
+        for (const e of await src.getEntries(idxs)) cb(e.fields);
+      }
+    }
+    return start > 0;
+  }
+
+  const topCounts = (counts: Map<string, number>, q: string, limit: number) => {
+    const needle = q.toLowerCase();
+    const all = [...counts].filter(([v]) => !needle || v.toLowerCase().includes(needle));
+    all.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return all.slice(0, limit).map(([value, count]) => ({ value, count }));
+  };
+
+  app.get(
+    '/api/logs/:id/fields',
+    wrap(async (req, res) => {
+      const src = sourceOr404(req, res);
+      if (!src) return;
+      const counts = new Map<string, number>();
+      const sampled = await visitFields(src, (fields) => {
+        if (fields) for (const k in fields) counts.set(k, (counts.get(k) ?? 0) + 1);
+      });
+      res.json({ keys: topCounts(counts, '', 500).map((v) => ({ key: v.value, count: v.count })), sampled });
+    })
+  );
+
+  // Most common values of `field=thread|logger` or of a structured field `key=`.
+  app.get(
+    '/api/logs/:id/values',
+    wrap(async (req, res) => {
+      const src = sourceOr404(req, res);
+      if (!src) return;
+      const q = typeof req.query.q === 'string' ? req.query.q : '';
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+      const counts = new Map<string, number>();
+      let sampled = false;
+      if (req.query.field === 'thread' || req.query.field === 'logger') {
+        const at = req.query.field === 'thread' ? (i: number) => src.threadAt(i) : (i: number) => src.loggerAt(i);
+        const n = src.count;
+        const start = Math.max(0, n - MAX_FIELD_SCAN);
+        sampled = start > 0;
+        for (let i = start; i < n; i++) {
+          const v = at(i);
+          counts.set(v, (counts.get(v) ?? 0) + 1);
+        }
+      } else if (typeof req.query.key === 'string' && req.query.key) {
+        const key = req.query.key;
+        sampled = await visitFields(src, (fields) => {
+          const v = fields?.[key];
+          if (v !== undefined) counts.set(v, (counts.get(v) ?? 0) + 1);
+        });
+      } else {
+        res.status(400).json({ error: 'pass field=thread|logger or key=<field key>' });
+        return;
+      }
+      res.json({ values: topCounts(counts, q, limit), sampled });
     })
   );
 

@@ -22,6 +22,7 @@ import { detectFormat, levelFromString, LogFormat, matchLine, ParsedLine, parseT
 
 import type { AppendEvent, Criteria, EntryOut, LogSource } from './source-api';
 import { EntryBuffer } from './entry-buffer';
+import { Fields, fieldsMatcher, normalizeFields } from './fields';
 
 export type { AppendEvent, Criteria, EntryOut, LogSource } from './source-api';
 
@@ -109,10 +110,12 @@ export function matcherFor(c: Criteria): (e: EntryOut) => boolean {
   const thSet = c.threads && c.threads.length ? new Set(c.threads) : null;
   const lgSet = c.loggers && c.loggers.length ? new Set(c.loggers) : null;
   const textTest = buildTextTest(c);
+  const fieldsTest = fieldsMatcher(c.fields);
   const ex = !!c.exclude;
   return (e) => {
     let ok = true;
     if (lvSet && !lvSet.has(e.lv)) ok = false;
+    else if (fieldsTest && !fieldsTest(e.fields)) ok = false;
     else if (thSet && !thSet.has(e.th)) ok = false;
     else if (lgSet && !lgSet.has(e.lg)) ok = false;
     else if (c.timeFrom && e.t && e.t < c.timeFrom) ok = false;
@@ -160,8 +163,24 @@ export abstract class BaseSource extends EventEmitter implements LogSource {
     const lgSet = c.loggers && c.loggers.length ? new Set(c.loggers) : null;
     const textTest = buildTextTest(c);
     const ex = !!c.exclude;
+    const fieldsTest = fieldsMatcher(c.fields);
+    const fieldsAt = (this as LogSource).fieldsAt?.bind(this);
+    if (fieldsTest && !fieldsAt) {
+      // Fields are not kept in memory (file sources): read the entries in
+      // batches and match them whole.
+      const match = matcherFor(c);
+      const out: number[] = [];
+      const BATCH = 1000;
+      for (let s = from; s < to; s += BATCH) {
+        const idxs: number[] = [];
+        for (let i = s; i < Math.min(to, s + BATCH); i++) idxs.push(i);
+        for (const e of await this.getEntries(idxs)) if (match(e)) out.push(e.i);
+      }
+      return out;
+    }
     const metaOk = (i: number): boolean => {
       if (lvSet && !lvSet.has(this.levelAt(i))) return false;
+      if (fieldsTest && !fieldsTest(fieldsAt!(i))) return false;
       if (thSet && !thSet.has(this.threadAt(i))) return false;
       if (lgSet && !lgSet.has(this.loggerAt(i))) return false;
       const t = this.timeAt(i);
@@ -543,6 +562,7 @@ export class FileLogSource extends BaseSource {
           msg: parsed.message || first,
           raw,
         };
+        if (parsed.fields) out[k]!.fields = parsed.fields;
       }
     }
     return out.filter((e): e is EntryOut => !!e);
@@ -648,6 +668,9 @@ export class MergedSource extends BaseSource {
 
   constructor(readonly id: string, readonly name: string, readonly children: LogSource[]) {
     super();
+    if (children.every((c) => c.fieldsAt)) {
+      this.fieldsAt = (i) => this.children[this.srcOf[i]].fieldsAt!(this.idxOf[i]);
+    }
     this.rebuild();
     for (let s = 0; s < children.length; s++) {
       const child = children[s];
@@ -668,6 +691,9 @@ export class MergedSource extends BaseSource {
   dependsOn(): readonly string[] {
     return this.childIds;
   }
+
+  // Fast field filters only when every child keeps fields in memory.
+  fieldsAt?: (i: number) => Fields | undefined;
 
   get childIds(): string[] {
     return this.children.map((c) => c.id);
@@ -810,6 +836,26 @@ export interface StreamEntryInput {
   thread?: string;
   logger?: string;
   message: string;
+  // Structured fields. Other top-level keys with primitive values are
+  // added as fields too, so { message, status: 500 } keeps status.
+  fields?: Record<string, string | number | boolean | null>;
+  [key: string]: unknown;
+}
+
+const STREAM_ENTRY_KEYS = new Set(['time', 'level', 'thread', 'logger', 'message', 'fields']);
+
+// Fields of a structured stream entry: the `fields` object plus any other
+// top-level keys with primitive values.
+function streamEntryFields(it: StreamEntryInput): Fields | undefined {
+  const extra: Record<string, unknown> = {};
+  let any = false;
+  for (const [k, v] of Object.entries(it)) {
+    if (STREAM_ENTRY_KEYS.has(k) || v === undefined || (typeof v === 'object' && v !== null)) continue;
+    extra[k] = v;
+    any = true;
+  }
+  const merged = it.fields && typeof it.fields === 'object' ? { ...extra, ...it.fields } : any ? extra : undefined;
+  return normalizeFields(merged);
 }
 
 // Optional durable sink for appended entries (see spool.ts). Structural to
@@ -865,6 +911,9 @@ export class StreamSource extends BaseSource {
   get loggerList() {
     return this.buf.loggers;
   }
+  fieldsAt(i: number) {
+    return this.buf.at(i).fields;
+  }
   levelAt(i: number) {
     return this.buf.at(i).lv;
   }
@@ -907,6 +956,8 @@ export class StreamSource extends BaseSource {
         e.th = truncateUtf8(p.thread ?? '', MAX_METADATA_BYTES, '');
         e.lg = truncateUtf8(p.logger ?? '', MAX_METADATA_BYTES, '');
         e.msg = truncateUtf8(p.message || heads[i], MAX_ENTRY_BYTES, '');
+        // Structured entries keep their fields; parsed lines take the format's.
+        if (p.fields) e.fields = p.fields;
       }
     }
     this.buf.retrack();
@@ -951,6 +1002,7 @@ export class StreamSource extends BaseSource {
           msg: truncateUtf8(p.message || line, MAX_ENTRY_BYTES, ''),
           raw: line,
         };
+        if (p.fields) e.fields = p.fields;
         this.buf.push(e);
         added.push(e);
       } else {
@@ -1004,6 +1056,8 @@ export class StreamSource extends BaseSource {
         msg: raw.split('\n', 1)[0],
         raw,
       };
+      const fields = streamEntryFields(it);
+      if (fields) e.fields = fields;
       this.buf.push(e);
       added.push(e);
     }
@@ -1019,10 +1073,10 @@ export class StreamSource extends BaseSource {
   // paths nothing is written back to the spool (the data came from there) and
   // no events are emitted (no subscribers exist yet). Retention caps apply as
   // usual, so a spool written under larger limits is trimmed on load.
-  restore(items: Array<Pick<EntryOut, 't' | 'lv' | 'th' | 'lg' | 'msg' | 'raw'>>) {
+  restore(items: Array<Pick<EntryOut, 't' | 'lv' | 'th' | 'lg' | 'msg' | 'raw' | 'fields'>>) {
     this.touch();
     for (const it of items) {
-      this.buf.push({
+      const e: EntryOut = {
         i: this.count,
         t: typeof it.t === 'number' ? it.t : 0,
         lv: typeof it.lv === 'number' && it.lv >= 0 && it.lv <= 5 ? it.lv : 0,
@@ -1030,7 +1084,10 @@ export class StreamSource extends BaseSource {
         lg: typeof it.lg === 'string' ? it.lg : '',
         msg: typeof it.msg === 'string' ? it.msg : '',
         raw: it.raw,
-      });
+      };
+      const fields = normalizeFields(it.fields);
+      if (fields) e.fields = fields;
+      this.buf.push(e);
     }
     this.buf.enforceRetention(this.aux);
   }
@@ -1182,7 +1239,14 @@ export class RemoteSource extends BaseSource {
 
   // Drops peer-side fields that would be stale locally (indices, elapsed).
   private normalize(e: EntryOut): EntryOut {
-    return { i: 0, t: e.t || 0, lv: e.lv | 0, th: e.th || '', lg: e.lg || '', msg: e.msg || '', raw: e.raw || '' };
+    const out: EntryOut = { i: 0, t: e.t || 0, lv: e.lv | 0, th: e.th || '', lg: e.lg || '', msg: e.msg || '', raw: e.raw || '' };
+    const fields = normalizeFields(e.fields);
+    if (fields) out.fields = fields;
+    return out;
+  }
+
+  fieldsAt(i: number) {
+    return this.buf.at(i).fields;
   }
 
   private replaceAll(entries: EntryOut[]) {

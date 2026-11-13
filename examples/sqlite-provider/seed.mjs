@@ -8,7 +8,10 @@ const dbPath = process.argv[2] && !process.argv[2].startsWith('--') ? process.ar
 const once = process.argv.includes('--once');
 const db = new DatabaseSync(dbPath);
 db.exec(SCHEMA);
-const insert = db.prepare('INSERT INTO logs (service, ts, level, thread, logger, message) VALUES (?, ?, ?, ?, ?, ?)');
+const insert = db.prepare(
+  'INSERT INTO logs (service, ts, level, thread, logger, message, tenant, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+);
+const TENANTS = ['acme', 'globex', 'initech'];
 
 const SERVICES = ['api', 'billing', 'worker'];
 const LEVELS = ['DEBUG', 'INFO', 'INFO', 'INFO', 'WARN', 'ERROR'];
@@ -30,7 +33,9 @@ const line = () =>
 
 function batch(count) {
   for (let k = 0; k < count; k++, n++) {
-    insert.run(SERVICES[n % 3], Date.now(), LEVELS[(Math.floor(n / 3) * 5) % LEVELS.length], `worker-${n % 4}`, `com.example.${SERVICES[n % 3]}`, line());
+    const level = LEVELS[(Math.floor(n / 3) * 5) % LEVELS.length];
+    const status = level === 'ERROR' ? 500 : level === 'WARN' ? 429 : 200;
+    insert.run(SERVICES[n % 3], Date.now(), level, `worker-${n % 4}`, `com.example.${SERVICES[n % 3]}`, line(), TENANTS[Math.floor(n / 3) % 3], status);
   }
 }
 

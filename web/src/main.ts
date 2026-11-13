@@ -7,6 +7,7 @@ import { LEVEL_COLORS, LEVEL_NAMES } from './types';
 import { escapeHtml, fmtBytes, fmtFullTime, fmtNum, throttle } from './util';
 import { icon, type IconName, logoMark } from './icons';
 import { makeSplitter } from './splitter';
+import { BarField, BarToken, CONTAINS, FilterBar, IN, IS } from './filterbar';
 
 interface UICriteria {
   levels: Set<number>;
@@ -15,6 +16,7 @@ interface UICriteria {
   loggers: Set<string>;
   timeFrom: number | null;
   timeTo: number | null;
+  fields: Map<string, Set<string>>;
 }
 
 interface SourceState {
@@ -57,6 +59,7 @@ const emptyCriteria = (): UICriteria => ({
   loggers: new Set(),
   timeFrom: null,
   timeTo: null,
+  fields: new Map(),
 });
 
 const state = {
@@ -97,8 +100,7 @@ function buildToolbar() {
     <button type="button" class="tb-btn" id="tb-follow" title="Tail: follow new entries" aria-label="Follow new entries" aria-pressed="false">${icon('follow')}</button>
     <span class="tb-sep" aria-hidden="true"></span>
     ${dots}
-    <label class="sr-only" for="tb-search">Filter log text</label>
-    <input id="tb-search" aria-label="Filter log text" placeholder="Filter text… (Enter)" spellcheck="false" />
+    <div id="tb-filter"></div>
     <button type="button" class="tb-btn" id="tb-clear" title="Clear all filters" aria-label="Clear all filters">${icon('filterClear')}</button>
     <span class="tb-sep" aria-hidden="true"></span>
     <label class="sr-only" for="tb-find">Find log text</label>
@@ -148,14 +150,10 @@ function buildToolbar() {
       void applyCriteria();
     };
   }
-  const search = el<HTMLInputElement>('tb-search');
-  search.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Enter') {
-      const s = active();
-      if (!s) return;
-      s.criteria.text = search.value.trim();
-      void applyCriteria();
-    }
+  filterBar = new FilterBar(el('tb-filter'), filterHost, {
+    inputId: 'tb-search',
+    placeholder: 'Filter: field or text…',
+    label: 'Filter: type a field or text',
   });
   el('tb-clear').onclick = () => {
     const s = active();
@@ -199,7 +197,7 @@ function syncToolbar() {
     button.classList.toggle('active', shown);
     button.setAttribute('aria-pressed', String(shown));
   }
-  el<HTMLInputElement>('tb-search').value = s?.criteria.text ?? '';
+  filterBar?.refresh();
 }
 
 function setFollow(on: boolean) {
@@ -279,6 +277,12 @@ function criteriaParts(s: SourceState): Array<{ key: string; html: string }> {
       key: 'loggers',
       html: `${icon('tag', 14)}<span>Logger (${[...c.loggers].map(escapeHtml).join(' OR ')})</span>`,
     });
+  for (const [key, values] of c.fields) {
+    parts.push({
+      key: 'field:' + key,
+      html: `${icon('tag', 14)}<span>${escapeHtml(key)} = ${[...values].map(escapeHtml).join(' OR ')}</span>`,
+    });
+  }
   if (c.timeFrom !== null)
     parts.push({ key: 'timeFrom', html: `${icon('clock', 14)}<span>After ${fmtFullTime(c.timeFrom)}</span>` });
   if (c.timeTo !== null)
@@ -350,6 +354,7 @@ function renderTree() {
       else if (k === 'loggers') s.criteria.loggers.clear();
       else if (k === 'timeFrom') s.criteria.timeFrom = null;
       else if (k === 'timeTo') s.criteria.timeTo = null;
+      else if (k.startsWith('field:')) s.criteria.fields.delete(k.slice('field:'.length));
       void applyCriteria();
     };
   });
@@ -479,6 +484,180 @@ function hideContextMenu() {
   ctxEl = null;
   ctxReturnFocus = null;
   returnFocus?.focus();
+}
+
+// ---- Filter bar host: fields, tokens <-> criteria ---------------------------------
+
+let filterBar: FilterBar | null = null;
+// Field keys of the active source for the bar (loaded when it opens).
+let barKeys: { id: string | null; keys: Array<{ key: string; count: number }> } = { id: null, keys: [] };
+
+const parseTimeValue = (v: string): number | null => {
+  const n = /^\d+$/.test(v) ? Number(v) : Date.parse(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+const sampledNote = (sampled: boolean) => (sampled ? 'Counts from the newest 50,000 entries.' : undefined);
+
+function barFields(): BarField[] {
+  const s = active();
+  const id = s?.info.id ?? '';
+  const timeLabel = (v: string) => {
+    const t = parseTimeValue(v);
+    return t === null ? v : fmtFullTime(t);
+  };
+  const fields: BarField[] = [
+    {
+      name: 'level',
+      title: 'Level',
+      icon: 'level',
+      operators: [IS, IN],
+      input: 'list',
+      values: async () => ({
+        values: LEVEL_NAMES.map((n, i) => ({ value: n, count: s?.info.stats[i] ?? 0 })),
+      }),
+    },
+    {
+      name: 'thread',
+      title: 'Thread',
+      icon: 'thread',
+      operators: [IS, IN],
+      input: 'list',
+      typedValues: true,
+      values: async (q) => {
+        const r = await api.fieldValues(id, { field: 'thread' }, q);
+        return { values: r.values, note: sampledNote(r.sampled) };
+      },
+    },
+    {
+      name: 'logger',
+      title: 'Logger',
+      icon: 'tag',
+      operators: [IS, IN],
+      input: 'list',
+      typedValues: true,
+      values: async (q) => {
+        const r = await api.fieldValues(id, { field: 'logger' }, q);
+        return { values: r.values, note: sampledNote(r.sampled) };
+      },
+    },
+    { name: 'text', title: 'Text', icon: 'search', operators: [CONTAINS], input: 'text', hint: 'Type text to search for, then Enter' },
+    {
+      name: 'after',
+      title: 'After',
+      icon: 'clock',
+      operators: [IS],
+      input: 'text',
+      label: timeLabel,
+      hint: 'Type a time like 2026-07-13 10:20:00, then Enter',
+    },
+    {
+      name: 'before',
+      title: 'Before',
+      icon: 'clock',
+      operators: [IS],
+      input: 'text',
+      label: timeLabel,
+      hint: 'Type a time like 2026-07-13 10:20:00, then Enter',
+    },
+  ];
+  // Structured fields of the log, plus any already filtered on.
+  const keys = new Map<string, number | undefined>();
+  if (barKeys.id === id) for (const k of barKeys.keys) keys.set(k.key, k.count);
+  for (const k of s?.criteria.fields.keys() ?? []) if (!keys.has(k)) keys.set(k, undefined);
+  for (const [key, count] of keys) {
+    fields.push({
+      name: 'f:' + key,
+      title: key,
+      icon: 'tag',
+      detail: count !== undefined ? `field · ${fmtNum(count)}` : 'field',
+      operators: [IS, IN],
+      input: 'list',
+      typedValues: true,
+      values: async (q) => {
+        const r = await api.fieldValues(id, { key }, q);
+        return { values: r.values, note: sampledNote(r.sampled) };
+      },
+    });
+  }
+  return fields;
+}
+
+function barTokens(): BarToken[] {
+  const s = active();
+  if (!s) return [];
+  const c = s.criteria;
+  const op = (n: number) => (n > 1 ? 'in' : 'is');
+  const tokens: BarToken[] = [];
+  if (c.levels.size > 0 && c.levels.size < 6) {
+    const names = [...c.levels].sort((a, b) => a - b).map((l) => LEVEL_NAMES[l]);
+    tokens.push({ field: 'level', operator: op(names.length), values: names });
+  }
+  if (c.threads.size) tokens.push({ field: 'thread', operator: op(c.threads.size), values: [...c.threads] });
+  if (c.loggers.size) tokens.push({ field: 'logger', operator: op(c.loggers.size), values: [...c.loggers] });
+  for (const [key, values] of c.fields) tokens.push({ field: 'f:' + key, operator: op(values.size), values: [...values] });
+  if (c.timeFrom !== null) tokens.push({ field: 'after', operator: 'is', values: [String(c.timeFrom)] });
+  if (c.timeTo !== null) tokens.push({ field: 'before', operator: 'is', values: [String(c.timeTo)] });
+  if (c.text) tokens.push({ field: 'text', operator: 'contains', values: [c.text] });
+  return tokens;
+}
+
+function criteriaFromTokens(tokens: BarToken[]): UICriteria {
+  const c = emptyCriteria();
+  for (const t of tokens) {
+    if (t.field === 'level') {
+      for (const v of t.values) {
+        const lv = LEVEL_NAMES.indexOf(v as (typeof LEVEL_NAMES)[number]);
+        if (lv >= 0) c.levels.add(lv);
+      }
+      if (c.levels.size === 6) c.levels.clear();
+    } else if (t.field === 'thread') t.values.forEach((v) => c.threads.add(v));
+    else if (t.field === 'logger') t.values.forEach((v) => c.loggers.add(v));
+    else if (t.field === 'text') c.text = t.values[0] ?? '';
+    else if (t.field === 'after') c.timeFrom = parseTimeValue(t.values[0] ?? '');
+    else if (t.field === 'before') c.timeTo = parseTimeValue(t.values[0] ?? '');
+    else if (t.field.startsWith('f:')) c.fields.set(t.field.slice(2), new Set(t.values));
+  }
+  return c;
+}
+
+const filterHost = {
+  fields: barFields,
+  tokens: barTokens,
+  freeText: 'text',
+  onChange(tokens: BarToken[]) {
+    const s = active();
+    if (!s) return;
+    s.criteria = criteriaFromTokens(tokens);
+    void applyCriteria();
+    filterBar?.refresh();
+  },
+  onOpen() {
+    const s = active();
+    if (!s) return;
+    const id = s.info.id;
+    // Refreshed on every open: live logs gain keys.
+    if (barKeys.id !== id) barKeys = { id, keys: [] };
+    api
+      .fieldKeys(id)
+      .then((r) => {
+        if (barKeys.id !== id) return;
+        barKeys = { id, keys: r.keys };
+        filterBar?.refresh();
+      })
+      .catch(() => {});
+  },
+};
+
+// Adds key = value to the active source's field filter (values of one key
+// are alternatives).
+function addFieldFilter(key: string, value: string) {
+  const s = active();
+  if (!s) return;
+  let values = s.criteria.fields.get(key);
+  if (!values) s.criteria.fields.set(key, (values = new Set()));
+  values.add(value);
+  void applyCriteria();
 }
 
 function showContextMenu(e: EntryOut, x: number, y: number) {
@@ -986,6 +1165,7 @@ function buildServerCriteria(c: UICriteria): Criteria {
   if (c.text) out.text = c.text;
   if (c.threads.size) out.threads = [...c.threads];
   if (c.loggers.size) out.loggers = [...c.loggers];
+  if (c.fields.size) out.fields = Object.fromEntries([...c.fields].map(([k, vs]) => [k, [...vs]]));
   if (c.timeFrom !== null) out.timeFrom = c.timeFrom;
   if (c.timeTo !== null) out.timeTo = c.timeTo;
   return out;
@@ -1105,6 +1285,7 @@ async function loadAnalysis(file: File) {
         loggers: new Set(c.loggers ?? []),
         timeFrom: c.timeFrom ?? null,
         timeTo: c.timeTo ?? null,
+        fields: new Map(Object.entries(c.fields ?? {}).map(([k, vs]) => [k, new Set(vs)])),
       };
       for (const b of src.bookmarks ?? []) {
         s.bookmarks.add(b);
@@ -1356,7 +1537,7 @@ function init() {
   el('fm-up').innerHTML = icon('dirUp');
   buildToolbar();
   renderDetail(detailEl, null);
-  grid.onSelect = (e) => renderDetail(detailEl, e);
+  grid.onSelect = (e) => renderDetail(detailEl, e, { onField: addFieldFilter });
   grid.onContextMenu = (_vi, e, x, y) => {
     if (e) showContextMenu(e, x, y);
   };

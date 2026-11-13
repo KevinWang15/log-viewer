@@ -34,13 +34,15 @@ for (const required of ['package.json', 'README.md', 'LICENSE', 'dist/lib.js', '
 check('contains UI assets', files.some((f) => /^ui\/assets\/.+\.js$/.test(f)));
 check('no tests, fixtures or caches', !files.some((f) => /^test\/|fixtures|__pycache__|\.pyc$|\.tgz$/.test(f)));
 check(`size is reasonable`, info.size < 2_000_000, `${(info.size / 1024).toFixed(0)} KiB packed, ${files.length} files`);
-check('README links are absolute', !/\]\((?!https?:|#)/.test(fs.readFileSync(path.join(root, 'server/README.md'), 'utf8')));
 
 // Install the tarball into a fresh project and use it like a consumer.
 const app = path.join(tmp, 'app');
 fs.mkdirSync(app);
 fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({ name: 'pack-check-app', private: true, type: 'commonjs' }));
 execSync(`npm install --no-audit --no-fund ${JSON.stringify(path.join(tmp, info.filename))}`, { cwd: app, stdio: 'inherit' });
+const installed = path.join(app, 'node_modules', ...pkg.name.split('/'));
+check('README links are absolute', !/\]\((?!https?:|#)/.test(fs.readFileSync(path.join(installed, 'README.md'), 'utf8')));
+check('postpack cleaned the workspace', !fs.existsSync(path.join(root, 'server/ui')));
 
 const node = (file, code) => {
   fs.writeFileSync(path.join(app, file), code);

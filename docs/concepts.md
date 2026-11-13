@@ -48,9 +48,20 @@ Criteria fields:
 | `regex` | boolean | treat `text` as a regular expression |
 | `caseSensitive` | boolean | match `text` case-sensitively (default: case-insensitive) |
 | `timeFrom`, `timeTo` | number (epoch ms) | inside the time range; entries without a timestamp pass |
+| `fields` | `{ key: string[] }` | whose structured field `key` has one of the values, for every key given |
 | `exclude` | boolean | invert the whole match |
 
-All fields that are set must match. The UI combines its level dots, text box, right-click filters and time limits into one criteria object per source; `regex`, `caseSensitive` and `exclude` are available through the API. When entries are appended, the server tests only the new entries against each filter and pushes the updated count and per-level stats to subscribers.
+All fields that are set must match. The UI combines its filter bar, level dots, right-click filters and detail-pane field chips into one criteria object per source; `regex`, `caseSensitive` and `exclude` are available through the API. When entries are appended, the server tests only the new entries against each filter and pushes the updated count and per-level stats to subscribers.
+
+### Structured fields
+
+Besides time, level, thread, logger and message, an entry can carry structured fields: key-value pairs such as `tenant=acme` or `status=500`. They come from:
+
+- provider records (`LogRecord.fields`), e.g. extra columns of a database table;
+- structured stream entries: a `fields` object and any other top-level key with a primitive value;
+- JSON log lines: every key not used for time, level, thread, logger or message.
+
+Values are stored as strings and matched exactly, so `status=500` is the string `"500"`. Streams, mirrors and providers keep fields in memory and filter them as fast as levels. File sources read them from the entry text when they filter, which is slower, about as fast as reading every entry. Plain-text lines have no fields; use a text filter there.
 
 `GET /api/logs/:id/locate?i=<index>&filter=<filterId>` maps a source index to the nearest view position, so the UI keeps your place when the filter changes.
 

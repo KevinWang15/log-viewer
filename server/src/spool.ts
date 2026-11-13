@@ -39,6 +39,7 @@ export interface SpooledEntry {
   lg: string;
   msg: string;
   raw: string;
+  fields?: Record<string, string>;
 }
 
 interface SpoolState {
@@ -58,6 +59,7 @@ function serializeEntry(e: EntryOut): string {
     msg: e.msg,
     raw: nl === -1 ? e.raw : e.raw.slice(0, nl),
   };
+  if (e.fields) line.fields = e.fields;
   return JSON.stringify(line);
 }
 

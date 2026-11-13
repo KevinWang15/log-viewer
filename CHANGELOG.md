@@ -1,6 +1,25 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.3.0
+
+- **Structured fields.** Entries keep key-value fields from provider records
+  (`fields`), structured stream entries (a `fields` object and any extra
+  top-level keys) and JSON log lines (keys not used for time, level, thread,
+  logger or message). The detail pane shows them; clicking one filters by it.
+- **Field filters.** Criteria take `fields: { key: [values] }` (exact match;
+  OR within a key, AND across keys), for filters and rules. New routes
+  `GET /api/logs/:id/fields` and `GET /api/logs/:id/values` list keys and the
+  most common values with counts.
+- **Filter bar.** The text filter box is now a GitLab-style token bar: pick a
+  field, an operator (`=` or `is one of`) and values from suggestions; typed
+  text that matches no field searches the text.
+- **Widget filter API.** The embed widget and `<log-viewer>` element take the
+  filter (`criteria` property, `setCriteria` postMessage command) and report
+  changes (`log-viewer-filter-changed`, `filterChanged`). The widget never
+  writes the filter to the URL; hosts decide.
+- Spool files keep fields, so they survive restarts.
+
+## 0.2.0
 
 ### Added
 

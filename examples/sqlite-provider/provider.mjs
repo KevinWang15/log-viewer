@@ -9,7 +9,9 @@
 //     level   TEXT NOT NULL,
 //     thread  TEXT,
 //     logger  TEXT,
-//     message TEXT NOT NULL
+//     message TEXT NOT NULL,
+//     tenant  TEXT,                  -- extra columns become filterable fields
+//     status  INTEGER
 //   );
 //   CREATE INDEX logs_service_id ON logs (service, id);
 //
@@ -26,7 +28,9 @@ export const SCHEMA = `
     level   TEXT NOT NULL,
     thread  TEXT,
     logger  TEXT,
-    message TEXT NOT NULL
+    message TEXT NOT NULL,
+    tenant  TEXT,
+    status  INTEGER
   );
   CREATE INDEX IF NOT EXISTS logs_service_id ON logs (service, id);
 `;
@@ -38,6 +42,9 @@ const toRecord = (row) => ({
   thread: row.thread ?? undefined,
   logger: row.logger ?? undefined,
   message: row.message,
+  // Extra columns as fields: filterable in the UI (detail pane chips,
+  // right-click "Filter: tenant = acme").
+  fields: Object.fromEntries(Object.entries({ tenant: row.tenant, status: row.status }).filter(([, v]) => v != null)),
 });
 
 export function createSqliteProvider(dbPath, { id = 'sqlite', name = 'SQLite logs' } = {}) {

@@ -22,6 +22,9 @@ export interface EntryOut {
   lg: string;
   msg: string; // first-line message (grid display)
   raw: string; // full entry text incl. continuation lines (capped)
+  // Structured key-value data (provider record fields, extra keys of
+  // structured stream entries and JSON log lines). Values are strings.
+  fields?: Record<string, string>;
   src?: string; // originating source name (merged views)
   // ms since the previous entry in the requested view; null for the first
   // visible entry or when either timestamp is missing. Set by the entries
@@ -39,6 +42,9 @@ export interface Criteria {
   exclude?: boolean;
   timeFrom?: number;
   timeTo?: number;
+  // Exact-match field filter: key -> accepted values. Values of one key are
+  // alternatives (OR); different keys must all match (AND).
+  fields?: Record<string, string[]>;
 }
 
 export interface AppendEvent {
@@ -76,6 +82,9 @@ export interface LogSource extends Pick<EventEmitter, 'on' | 'off' | 'once' | 'e
   close(): Promise<void>;
 
   // Optional hooks (replace kind-specific branching in the core):
+  // Fields of entry i, for sources that keep them in memory (fast field
+  // filters). Without it, field filters read entries with getEntries().
+  fieldsAt?(i: number): Record<string, string> | undefined;
   // Extra fields merged into the source's info (GET /api/logs/:id).
   describe?(): Record<string, unknown>;
   // Ids of sources this one reads from; removing one of them removes this too.

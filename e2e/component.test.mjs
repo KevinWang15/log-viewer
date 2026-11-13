@@ -75,6 +75,7 @@ async function seed(channel, count, tag, baseTime) {
       thread: `worker-${i % 4}`,
       logger: 'component.test',
       message: `${tag} entry ${i}`,
+      shard: i % 2 ? 'b' : 'a',
     });
   }
   if (entries.length) await api('POST', `/api/v1/streams/${channel}/entries`, { entries });
@@ -117,7 +118,7 @@ try {
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.evaluateOnNewDocument(() => {
     window.__events = [];
-    for (const type of ['log-viewer-ready', 'log-viewer-entry-selected', 'log-viewer-stats']) {
+    for (const type of ['log-viewer-ready', 'log-viewer-entry-selected', 'log-viewer-stats', 'log-viewer-filter-changed']) {
       window.addEventListener(type, (e) =>
         window.__events.push({ type, channel: e.target.getAttribute('channel'), detail: e.detail })
       );
@@ -215,6 +216,25 @@ try {
       selEv.detail.entry.msg === want.message,
     `vi=${clickedVi} ${JSON.stringify(selEv.detail)}`
   );
+
+  // criteria property: set from the host, read back, and change events
+  await page.evaluate(() => (document.querySelectorAll('log-viewer')[0].criteria = { fields: { shard: ['a'] } }));
+  await waitShadow(0, (root) => (root.getElementById('em-status')?.textContent || '').startsWith('20 records'));
+  const apiEv = await page.evaluate(() => window.__events.filter((e) => e.type === 'log-viewer-filter-changed').at(-1));
+  const readBack = await page.evaluate(() => document.querySelectorAll('log-viewer')[0].criteria);
+  check(
+    'criteria property filters and reports the change',
+    apiEv?.detail?.source === 'api' && apiEv.detail.criteria.fields.shard[0] === 'a' && readBack.fields.shard[0] === 'a',
+    JSON.stringify({ apiEv: apiEv?.detail, readBack })
+  );
+  // A field chip in the detail pane is a user change.
+  await shadow(0, (root) => root.querySelector('.lg-row')?.click());
+  await waitShadow(0, (root) => !!root.querySelector('button.field-chip'));
+  await shadow(0, (root) => root.querySelector('button.field-chip')?.click());
+  await page.waitForFunction(() => window.__events.some((e) => e.type === 'log-viewer-filter-changed' && e.detail?.source === 'user'), {
+    timeout: 8000,
+  });
+  check('field chips change the filter as the user', true);
 
   // channel attribute switch re-subscribes the second element
   await page.evaluate(

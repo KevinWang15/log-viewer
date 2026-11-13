@@ -12,6 +12,7 @@ import { EntryBuffer } from '../entry-buffer';
 import { levelFromString, parseTimestamp } from '../parser';
 import { BaseSource, MAX_ENTRY_BYTES, MAX_METADATA_BYTES, truncateUtf8 } from '../sources';
 import type { AppendEvent, EntryOut } from '../source-api';
+import { normalizeFields } from '../fields';
 import {
   Cursor,
   CursorExpiredError,
@@ -55,7 +56,9 @@ export function recordToEntry(r: LogRecord): EntryOut | null {
   else if (typeof r.level === 'string') lv = levelFromString(r.level);
   const raw = truncateUtf8(typeof r.raw === 'string' ? r.raw : r.message, MAX_ENTRY_BYTES);
   const nl = r.message.indexOf('\n');
+  const fields = normalizeFields(r.fields);
   return {
+    ...(fields ? { fields } : {}),
     i: 0,
     t,
     lv,
@@ -169,6 +172,9 @@ export class ProviderSource extends BaseSource {
   }
   get loggerList() {
     return this.buf.loggers;
+  }
+  fieldsAt(i: number) {
+    return this.buf.at(i).fields;
   }
   levelAt(i: number) {
     return this.buf.at(i).lv;

@@ -183,6 +183,11 @@ that cannot be compiled returns `400` with the reason.
 | `regex`, `caseSensitive` | how `text` matches (default: substring, case-insensitive) |
 | `exclude` | invert the match |
 | `timeFrom`, `timeTo` | time range |
+| `fields` | structured fields: `{"key": ["value", ...]}`. Values of one key are alternatives; all keys must match. A single string is accepted for one value. |
+
+```json
+{ "criteria": { "levels": [4, 5], "fields": { "tenant": ["acme", "globex"], "status": "500" } } }
+```
 
 Response: `{"filterId": "F1", "count": 120, "stats": [...]}`. An invalid
 regular expression returns `400`. Auth: `view-state`.
@@ -269,11 +274,35 @@ Entry fields:
 | `raw` | full entry text including continuation lines, capped at 64 KiB |
 | `src` | originating source name, merged views only |
 | `elapsed` | ms since the previous entry in the current view, or `null` |
+| `fields` | structured fields as `{"key": "value"}` strings, when the entry has any |
 
 `elapsed` compares against the entry just above in the same view, filter
 included. The first row of a window compares against the row before the
 window, so paging into the middle of a view gives correct values. It is
 `null` for the first entry of the view and when either timestamp is missing.
+
+### `GET /api/logs/:id/fields`
+
+Field keys of the log with the number of entries that carry each, most
+common first: `{"keys": [{"key": "tenant", "count": 120}], "sampled": false}`.
+Streams, mirrors and providers scan every retained entry (up to 1,000,000);
+files read the newest 50,000 entries and report `"sampled": true`. Auth:
+`read`.
+
+### `GET /api/logs/:id/values`
+
+The most common values of one field, for suggestions.
+
+| Query | Meaning |
+|---|---|
+| `key` | a structured field key, or |
+| `field` | `thread` or `logger` |
+| `q` | optional case-insensitive substring the values must contain |
+| `limit` | 1 to 200, default 50 |
+
+Response: `{"values": [{"value": "acme", "count": 41}], "sampled": false}`,
+sampled as for `/fields`. Without `key` or `field` it returns `400`. Auth:
+`read`.
 
 ### Bookmarks
 
@@ -504,8 +533,14 @@ The body takes raw `lines`, structured `entries`, or both:
 - Structured entries need a string `message`; others are skipped. `time` is
   epoch ms or a timestamp string; when it is missing or unparsable, the
   server uses the time of ingestion. `level` accepts TRACE to FATAL and
-  common aliases. Only `time`, `level`, `thread`, `logger` and `message` are
-  kept.
+  common aliases.
+- Every other key becomes a structured field: a `fields` object, and any
+  other top-level key with a string, number, boolean or null value.
+  `{ "message": "paid", "tenant": "acme", "fields": { "orderId": 7 } }` gets
+  the fields `tenant` and `orderId`. Values are stored as strings; at most 32
+  fields per entry, keys up to 64 and values up to 256 characters.
+- JSON lines get the same treatment: keys not used for time, level, thread,
+  logger or message become fields.
 - Entry text is capped at 64 KiB, thread and logger names at 4 KiB.
 
 The response has the same shape as the `PUT` response, without `created`.

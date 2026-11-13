@@ -49,7 +49,7 @@ To feed a database instead, see [examples/sqlite-provider](examples/sqlite-provi
 
 - **Parsing.** Auto-detects log4j-style layouts, JSON lines, syslog (RFC 3164 and RFC 5424) and plain text. A custom log4j-style conversion pattern (`%d [%t] %-5p %c - %m`) covers other layouts.
 - **Multiline entries.** Stack traces and XML/JSON payloads stay grouped with the line that starts the entry.
-- **Filters.** Combine levels, text, thread, logger and time range; the API also takes regex, case-sensitive and exclude options. Filters run on the server and update as new entries arrive.
+- **Filters.** A filter bar in the GitLab style combines level, thread, logger, structured fields (such as `tenant` or `status`), text and time range. Filters run on the server and update as new entries arrive. See [Filtering](#filtering).
 - **Merge.** Combine open logs into one time-ordered view. Live appends flow through the merge.
 - **Tail and follow.** New entries are indexed incrementally. Follow mode sticks to the bottom: scrolling up pauses it and scrolling back down resumes it. File truncation is detected and the file is re-indexed.
 - **Large files.** The index keeps only numbers per entry and the text stays on disk. Files over 128 MB can be opened in 100 MB parts ("Open part of file").
@@ -64,6 +64,37 @@ To feed a database instead, see [examples/sqlite-provider](examples/sqlite-provi
 - **Gzip.** Gzipped logs (such as rotated `.log.gz` files) open transparently.
 - **Directory watch.** Files under the root that match globs such as `**/*.log` open automatically.
 - **Spooling.** With `SPOOL_DIR` set, stream entries are written to disk and restored after a restart.
+
+## Filtering
+
+Click the filter bar in the toolbar and build filters one step at a time from the list under the caret:
+
+1. Pick a field: Level, Thread, Logger, Text, After, Before, or one of the log's structured fields. Type to narrow the list.
+2. Pick how it matches: `=` for one value, or `is one of` to check several and press Enter.
+3. Pick values. The list shows the log's most common values with counts.
+
+```
+Level is one of ERROR, FATAL   tenant = acme   Text contains "timeout"
+```
+
+Typed text that matches no field becomes a text search. Click a token to edit it, click its × to remove it, or press Backspace in the empty input to edit the last one. The level dots, right-click menu and the field chips in the detail pane add to the same filter.
+
+**Structured fields** come from your data. Send extra keys with stream entries:
+
+```bash
+curl -X POST http://localhost:5178/api/v1/streams/myapp/entries -H 'content-type: application/json' \
+  -d '{"entries":[{"level":"ERROR","message":"payment failed","tenant":"acme","status":500}]}'
+```
+
+JSON log lines get fields from every key besides time, level, thread, logger and message. Providers return them as `fields` on each record, for example the extra columns of a database table:
+
+```js
+{ cursor: String(row.id), time: row.ts, level: row.level, message: row.message, fields: { tenant: row.tenant, status: row.status } }
+```
+
+Values are matched exactly. Over the API a filter is `{"fields": {"tenant": ["acme", "globex"], "status": ["500"]}}`: values of one key are alternatives, and every key must match ([API](docs/api.md#filters)).
+
+**Controlling the filter from your app.** The embedded widget takes and reports the filter, but never writes it to the URL, so routing stays your decision: set `el.criteria = {...}` on the `<log-viewer>` element (or post `setCriteria` to the iframe) and listen to `log-viewer-filter-changed` (or `filterChanged`). See [Embedding the UI](docs/embedding-ui.md).
 
 ## Documentation
 

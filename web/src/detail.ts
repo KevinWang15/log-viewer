@@ -31,12 +31,37 @@ function highlight(raw: string): string {
 // HTML — skip it.
 const lastRendered = new WeakMap<HTMLElement, EntryOut | null>();
 
-export function renderDetail(el: HTMLElement, e: EntryOut | null) {
+export interface DetailOptions {
+  // Makes field chips clickable: called with the chip's key and value.
+  onField?: (key: string, value: string) => void;
+}
+
+// Structured fields as key = value chips above the entry text.
+function fieldsHtml(fields: Record<string, string> | undefined, clickable: boolean): string {
+  const entries = Object.entries(fields ?? {});
+  if (!entries.length) return '';
+  const chips = entries
+    .map(([k, v]) => {
+      const inner = `<span class="fk">${escapeHtml(k)}</span><span class="fv">${escapeHtml(v)}</span>`;
+      return clickable
+        ? `<button type="button" class="field-chip" data-k="${escapeHtml(k)}" data-v="${escapeHtml(v)}" title="Filter by ${escapeHtml(k)} = ${escapeHtml(v)}">${inner}</button>`
+        : `<span class="field-chip">${inner}</span>`;
+    })
+    .join('');
+  return `<div class="detail-fields" aria-label="Fields">${chips}</div>`;
+}
+
+export function renderDetail(el: HTMLElement, e: EntryOut | null, opts: DetailOptions = {}) {
   if (lastRendered.has(el) && lastRendered.get(el) === e) return;
   lastRendered.set(el, e);
   if (!e) {
     el.innerHTML = '<div class="detail-empty">Select a log entry to see its full text.</div>';
     return;
   }
-  el.innerHTML = `<pre class="detail-pre">${highlight(e.raw)}</pre>`;
+  el.innerHTML = fieldsHtml(e.fields, !!opts.onField) + `<pre class="detail-pre">${highlight(e.raw)}</pre>`;
+  if (opts.onField) {
+    el.querySelectorAll<HTMLElement>('button.field-chip').forEach((chip) => {
+      chip.onclick = () => opts.onField!(chip.dataset.k!, chip.dataset.v!);
+    });
+  }
 }
