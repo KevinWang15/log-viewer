@@ -1,7 +1,5 @@
-import { matcherFor, StreamSource } from './sources';
+import { matcherFor } from './sources';
 import type { AppendEvent, Criteria, EntryOut, LogSource } from './source-api';
-import { DEFAULTS } from './config';
-import { StreamSpooler } from './spool';
 
 export class StoreCapacityError extends Error {
   readonly status = 503;
@@ -90,6 +88,11 @@ export function messageTemplate(msg: string): string {
   return t.length > MAX_TEMPLATE_LENGTH ? t.slice(0, MAX_TEMPLATE_LENGTH - 1) + '…' : t;
 }
 
+export interface RemoveOptions {
+  // false keeps a stream's spool file on disk (shutdown); default true.
+  dropSpool?: boolean;
+}
+
 export class Store {
   sources = new Map<string, LogSource>();
   filters = new Map<string, FilterEntry>();
@@ -107,7 +110,12 @@ export class Store {
     });
   private fidSeq = 1;
   private ridSeq = 1;
-  private byPath = new Map<string, string>(); // file path(+range) -> source id
+  // Lookup aliases (e.g. a file path + byte range) -> source id, so repeated
+  // opens of the same thing return the existing source.
+  private aliases = new Map<string, string>();
+  // Called after a source was removed (modules clean up their own state).
+  private removeHooks: Array<(src: LogSource, opts?: RemoveOptions) => void | Promise<void>> = [];
+  logger: Pick<Console, 'log' | 'warn' | 'error'> = console;
   private origins = new Map<string, string>(); // source id -> origin ('watch' for auto-opened files)
   // Content versions for the minimap/report caches: the epoch bumps on reset
   // (indices may be rebased), the bookmark version on bookmark changes.
@@ -120,25 +128,8 @@ export class Store {
   // two interleaved calls would otherwise fold the same tail rows twice.
   private reportQueues = new Map<string, Promise<unknown>>();
 
-  constructor(
-    private readonly maxStreams: number = DEFAULTS.streamMaxSources,
-    private readonly spooler?: StreamSpooler,
-    private readonly streamLimits: { maxEntries: number; maxBytes: number } = {
-      maxEntries: DEFAULTS.streamMaxEntries,
-      maxBytes: DEFAULTS.streamMaxBytes,
-    }
-  ) {}
-
-  get streamCount(): number {
-    let count = 0;
-    for (const source of this.sources.values()) if (source instanceof StreamSource) count++;
-    return count;
-  }
-
-  get streamBytes(): number {
-    let bytes = 0;
-    for (const source of this.sources.values()) if (source instanceof StreamSource) bytes += source.bytes;
-    return bytes;
+  onSourceRemoved(hook: (src: LogSource, opts?: RemoveOptions) => void | Promise<void>) {
+    this.removeHooks.push(hook);
   }
 
   bookmarksFor(id: string): Set<number> {
@@ -319,20 +310,25 @@ export class Store {
     };
   }
 
-  addSource(src: LogSource, filePath?: string) {
+  addSource(src: LogSource, alias?: string) {
     this.sources.set(src.id, src);
-    if (filePath) this.byPath.set(filePath, src.id);
+    if (alias) this.aliases.set(alias, src.id);
     src.on('append', (ev: AppendEvent) => {
-      this.handleAppend(src, ev).catch((err) => console.error('append handling failed:', err));
+      this.handleAppend(src, ev).catch((err) => this.logger.error('append handling failed:', err));
     });
     src.on('reset', () => {
-      this.handleReset(src).catch((err) => console.error('reset handling failed:', err));
+      this.handleReset(src).catch((err) => this.logger.error('reset handling failed:', err));
     });
   }
 
-  sourceForPath(filePath: string): LogSource | undefined {
-    const id = this.byPath.get(filePath);
+  sourceForAlias(alias: string): LogSource | undefined {
+    const id = this.aliases.get(alias);
     return id ? this.sources.get(id) : undefined;
+  }
+
+  // File sources register their path (+ byte range) as the alias.
+  sourceForPath(filePath: string): LogSource | undefined {
+    return this.sourceForAlias(filePath);
   }
 
   // How a source was opened; currently only the directory monitor sets this.
@@ -342,33 +338,6 @@ export class Store {
 
   originFor(id: string): string | undefined {
     return this.origins.get(id);
-  }
-
-  getStream(channel: string, touch = true): StreamSource | undefined {
-    const src = this.sources.get('s:' + channel);
-    if (!(src instanceof StreamSource)) return undefined;
-    if (touch) src.touch();
-    return src;
-  }
-
-  getOrCreateStream(channel: string): StreamSource {
-    const existing = this.getStream(channel);
-    if (existing) return existing;
-    if (this.maxStreams > 0 && this.streamCount >= this.maxStreams) throw new StoreCapacityError(this.maxStreams);
-    const src = new StreamSource('s:' + channel, channel, this.streamLimits.maxEntries, this.streamLimits.maxBytes);
-    this.spooler?.attach(src);
-    this.addSource(src);
-    return src;
-  }
-
-  async removeIdleStreams(idleForMs: number, now = Date.now()): Promise<number> {
-    if (idleForMs <= 0) return 0;
-    const expired: string[] = [];
-    for (const src of this.sources.values()) {
-      if (src instanceof StreamSource && now - src.lastActivityAt >= idleForMs) expired.push(src.id);
-    }
-    for (const id of expired) await this.removeSource(id);
-    return expired.length;
   }
 
   // Maps a global entry index to a view index, so a client can keep its place
@@ -451,7 +420,7 @@ export class Store {
 
   // dropSpool=false keeps the stream's spool file on disk (graceful shutdown);
   // explicit deletes and idle expiry use the default and remove it.
-  async removeSource(id: string, opts?: { dropSpool?: boolean }) {
+  async removeSource(id: string, opts?: RemoveOptions) {
     const src = this.sources.get(id);
     if (!src) return;
     // Merged views depending on this source must go first.
@@ -465,10 +434,10 @@ export class Store {
     this.dropViewCaches(id);
     for (const [fid, f] of this.filters) if (f.sourceId === id) this.filters.delete(fid);
     for (const [rid, r] of this.rules) if (r.sourceId === id) this.rules.delete(rid);
-    for (const [p, sid] of this.byPath) if (sid === id) this.byPath.delete(p);
+    for (const [a, sid] of this.aliases) if (sid === id) this.aliases.delete(a);
     this.origins.delete(id);
     await src.close();
-    if (opts?.dropSpool !== false && src instanceof StreamSource) await this.spooler?.remove(src.name);
+    for (const hook of this.removeHooks) await hook(src, opts);
   }
 
   // Incremental rule matching, mirroring the filter path above: small batches

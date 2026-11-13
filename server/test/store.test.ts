@@ -1,22 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_RULES_PER_SOURCE, RuleLimitError, Store, StoreCapacityError } from '../src/store';
+import { StreamRegistry } from '../src/streams';
 
 test('store caps stream sources and expires idle channels', async () => {
-  const store = new Store(1);
-  const source = store.getOrCreateStream('first');
-  assert.throws(() => store.getOrCreateStream('second'), StoreCapacityError);
+  const store = new Store();
+  const streams = new StreamRegistry(store, { maxSources: 1 });
+  const source = streams.getOrCreate('first');
+  assert.throws(() => streams.getOrCreate('second'), StoreCapacityError);
 
   source.touch(1_000);
-  assert.equal(await store.removeIdleStreams(500, 1_499), 0);
-  assert.equal(await store.removeIdleStreams(500, 1_500), 1);
-  assert.equal(store.streamCount, 0);
-  assert.equal(store.getStream('first'), undefined);
+  assert.equal(await streams.removeIdle(500, 1_499), 0);
+  assert.equal(await streams.removeIdle(500, 1_500), 1);
+  assert.equal(streams.count, 0);
+  assert.equal(streams.get('first'), undefined);
 });
 
 test('rules scan on create, match appends incrementally, bookmark, webhook only post-creation', async () => {
   const store = new Store();
-  const src = store.getOrCreateStream('ch');
+  const src = new StreamRegistry(store).getOrCreate('ch');
   src.appendEntries([
     { level: 'ERROR', message: 'pre boom' },
     { level: 'INFO', message: 'pre ok' },
@@ -79,7 +81,7 @@ test('rules scan on create, match appends incrementally, bookmark, webhook only 
 
 test('webhook delivery errors are swallowed and counted on the rule', async () => {
   const store = new Store();
-  const src = store.getOrCreateStream('err');
+  const src = new StreamRegistry(store).getOrCreate('err');
   store.webhookSender = async () => {
     throw new Error('connection refused');
   };
@@ -93,11 +95,11 @@ test('webhook delivery errors are swallowed and counted on the rule', async () =
 
 test('rules are capped per source', async () => {
   const store = new Store();
-  const src = store.getOrCreateStream('capped');
+  const src = new StreamRegistry(store).getOrCreate('capped');
   for (let k = 0; k < MAX_RULES_PER_SOURCE; k++) await store.createRule(src, {}, {});
   await assert.rejects(() => store.createRule(src, {}, {}), RuleLimitError);
   // The cap is per source, not global.
-  const other = store.getOrCreateStream('other');
+  const other = new StreamRegistry(store).getOrCreate('other');
   await store.createRule(other, {}, {});
   assert.equal(store.rulesFor('s:capped').length, MAX_RULES_PER_SOURCE);
   assert.equal(store.rulesFor('s:other').length, 1);
@@ -105,7 +107,7 @@ test('rules are capped per source', async () => {
 
 test('locate maps an entry to the same or nearest-in-time row of a filtered view', async () => {
   const store = new Store();
-  const src = store.getOrCreateStream('loc');
+  const src = new StreamRegistry(store).getOrCreate('loc');
   const t0 = Date.parse('2026-01-01T00:00:00Z');
   // Entry index: 0 INFO@0s, 1 ERROR@1s, 2 INFO@2s, 3 INFO@9s, 4 ERROR@10s
   src.appendEntries([
