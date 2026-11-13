@@ -53,8 +53,17 @@
 
     <div id="modal-backdrop" hidden>
       <div id="file-modal" role="dialog" aria-modal="true" aria-labelledby="file-modal-title">
-        <div class="modal-title" id="file-modal-title">Open Log File</div>
-        <div class="modal-path">
+        <div class="modal-title" id="file-modal-title">Open log</div>
+        <div class="modal-tabs" role="tablist" aria-label="Log sources">
+          <button type="button" role="tab" id="fm-tab-files" aria-selected="true" aria-controls="fm-list">Files</button>
+          <button type="button" role="tab" id="fm-tab-catalog" aria-selected="false" aria-controls="fm-list">Catalog</button>
+        </div>
+        <div class="modal-path" id="fm-catalog-bar" hidden>
+          <label class="sr-only" for="fm-filter">Filter logs</label>
+          <input id="fm-filter" placeholder="Filter logs by name or label…" spellcheck="false" />
+          <button type="button" id="fm-refresh">Refresh</button>
+        </div>
+        <div class="modal-path" id="fm-files-bar">
           <button type="button" id="fm-up" title="Parent directory" aria-label="Parent directory"></button>
           <label class="sr-only" for="fm-path">Directory path</label>
           <input id="fm-path" aria-label="Directory path" spellcheck="false" />

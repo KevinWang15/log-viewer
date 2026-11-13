@@ -9,7 +9,13 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "sourceMap": false,
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "declaration": true,
+    "declarationMap": true
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

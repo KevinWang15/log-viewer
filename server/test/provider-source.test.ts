@@ -102,7 +102,8 @@ test('provider reset event reloads the mirror and emits reset', async () => {
   const src = await ProviderSource.open(mem, desc, fast);
   const log = events(src);
   try {
-    await until(() => src.state === 'live');
+    await until(() => mem.calls.watch >= 1, 3000, 'watch started');
+    await new Promise((r) => setTimeout(r, 10));
     mem.truncate('app', 2);
     mem.emitReset('app');
     await until(() => log.some((e) => e.type === 'reset'), 3000, 'reset');
@@ -200,11 +201,13 @@ test('a watch that ends is resumed after catching up with list()', async () => {
 
 test('close() aborts a watch that never yields and leaves no timers', async () => {
   let aborted = false;
+  let watching = false;
   const provider = defineProvider({
     id: 'stuck',
     logs: async () => [desc],
     list: async () => ({ records: [] }),
     watch: async function* (_id, req): AsyncIterable<WatchEvent> {
+      watching = true;
       await new Promise<void>((resolve) =>
         req.signal.addEventListener('abort', () => {
           aborted = true;
@@ -214,7 +217,7 @@ test('close() aborts a watch that never yields and leaves no timers', async () =
     },
   });
   const src = await ProviderSource.open(provider, desc, fast);
-  await until(() => src.state === 'live');
+  await until(() => watching, 3000, 'watch started');
   const t0 = Date.now();
   await src.close();
   assert.ok(aborted, 'watch saw the abort');

@@ -205,6 +205,7 @@ export function streamsModule(ctx: ModuleContext, opts: StreamsOptions): ViewerM
       mutationAuth: opts.mutationAuth ?? 'none',
       limits,
       spool: !!spooler,
+      demo: !!opts.demo,
     }),
     health: () => ({ streams: registry.count, streamBytes: registry.bytes }),
     async start() {

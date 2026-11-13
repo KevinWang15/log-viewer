@@ -1,10 +1,16 @@
-import type { BrowseResult, Criteria, EntryOut, FilterResult, SourceInfo, WsAppendMsg } from './types';
+import type { BrowseResult, Capabilities, CatalogLog, Criteria, EntryOut, FilterResult, SourceInfo, WsAppendMsg } from './types';
 
 let BASE = '';
 let VIEW_KEY = '';
 
 export function setBase(base: string) {
   BASE = base.replace(/\/$/, '');
+}
+
+// The API base for a UI served by the viewer itself: the directory of the
+// current page, so a viewer mounted under /logs/ talks to /logs/api.
+export function deriveBase(): string {
+  return new URL('.', location.href).pathname.replace(/\/$/, '');
 }
 
 export function setViewKey(key: string) {
@@ -37,6 +43,17 @@ const post = (body: unknown): RequestInit => ({
   headers: { 'content-type': 'application/json' },
   body: JSON.stringify(body),
 });
+
+export const capabilities = () => req<Capabilities>('/api/v1/capabilities');
+
+export const providerLogs = (providerId: string) =>
+  req<{ logs: CatalogLog[] }>(`/api/v1/providers/${encodeURIComponent(providerId)}/logs`);
+
+export const openProviderLog = (providerId: string, logId: string) =>
+  req<SourceInfo>(
+    `/api/v1/providers/${encodeURIComponent(providerId)}/logs/${encodeURIComponent(logId)}/open`,
+    post({})
+  );
 
 export const browse = (path?: string) =>
   req<BrowseResult>('/api/browse' + (path ? '?path=' + encodeURIComponent(path) : ''));

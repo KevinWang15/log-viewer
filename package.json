@@ -13,10 +13,11 @@
     "test": "npm test -w server",
     "bench": "npm run build -w server && node --expose-gc server/test/perf.bench.mjs",
     "bench:ui": "npm run build && node e2e/ui-perf.bench.mjs",
-    "test:e2e": "SHOT_DIR=/tmp node e2e/ui.test.mjs",
-    "test:e2e:bridge": "node e2e/embed-bridge.test.mjs",
-    "test:e2e:component": "node e2e/component.test.mjs",
-    "test:cdp": "node e2e/cdp-audit.mjs"
+    "test:e2e": "npm run build && SHOT_DIR=/tmp node e2e/ui.test.mjs",
+    "test:e2e:bridge": "npm run build && node e2e/embed-bridge.test.mjs",
+    "test:e2e:component": "npm run build && node e2e/component.test.mjs",
+    "test:cdp": "npm run build && node e2e/cdp-audit.mjs",
+    "test:e2e:prefix": "npm run build && node e2e/prefix.test.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

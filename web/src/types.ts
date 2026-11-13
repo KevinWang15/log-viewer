@@ -21,9 +21,18 @@ export interface ServerRule {
 
 export interface SourceInfo {
   id: string;
-  kind: 'file' | 'stream' | 'merged';
+  // 'file' | 'stream' | 'merged' | 'remote' | 'provider', or a custom kind.
+  kind: string;
   name: string;
   path?: string;
+  remote?: { url: string; source: string };
+  provider?: { id: string; name?: string; log: string };
+  description?: string;
+  labels?: Record<string, string>;
+  // Live-follow state of mirrors (remote, provider).
+  state?: string;
+  connected?: boolean;
+  lastError?: string;
   count: number;
   stats: number[];
   threads: string[];
@@ -85,3 +94,30 @@ export const LEVEL_NAMES = ['TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL'] 
 // Swatch colors for dots, minimap and charts. Not used for text: row text
 // colors live in styles.css and meet WCAG AA contrast.
 export const LEVEL_COLORS = ['#94a3b8', '#64748b', '#3b82f6', '#f59e0b', '#ef4444', '#991b1b'] as const;
+
+export interface CatalogLog {
+  id: string;
+  name: string;
+  description?: string;
+  labels?: Record<string, string>;
+  open?: boolean;
+}
+
+export interface ProviderInfo {
+  id: string;
+  name: string;
+  capabilities: Record<string, boolean>;
+}
+
+export interface Capabilities {
+  service: string;
+  serviceVersion: string;
+  apiVersion: string;
+  modules?: {
+    files?: { root: string; samples?: string };
+    streams?: { demo?: boolean };
+    merge?: Record<string, unknown>;
+    remote?: Record<string, unknown>;
+    providers?: { providers: ProviderInfo[] };
+  };
+}

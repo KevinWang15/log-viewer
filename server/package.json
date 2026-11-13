@@ -1,7 +1,57 @@
 {
-  "name": "log-viewer-server",
-  "private": true,
-  "version": "0.1.0",
+  "name": "@kevinwang15/log-viewer",
+  "version": "0.2.0",
+  "description": "Fast log viewer for the browser: tail, filter and search large log files, live streams and your own log storage (databases, services) through a list+watch provider API.",
+  "license": "MIT",
+  "author": "Ke Wang",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KevinWang15/log-viewer.git",
+    "directory": "server"
+  },
+  "homepage": "https://github.com/KevinWang15/log-viewer#readme",
+  "bugs": {
+    "url": "https://github.com/KevinWang15/log-viewer/issues"
+  },
+  "keywords": [
+    "log",
+    "logs",
+    "log-viewer",
+    "tail",
+    "log4j",
+    "observability",
+    "viewer",
+    "streaming"
+  ],
+  "main": "dist/lib.js",
+  "types": "dist/lib.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/lib.d.ts",
+      "default": "./dist/lib.js"
+    },
+    "./provider": {
+      "types": "./dist/provider/spi.d.ts",
+      "default": "./dist/provider/spi.js"
+    },
+    "./testing": {
+      "types": "./dist/provider/conformance.d.ts",
+      "default": "./dist/provider/conformance.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "log-viewer": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "ui",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p .",

@@ -2,10 +2,10 @@ import './styles.css';
 import * as api from './api';
 import { LogGrid } from './grid';
 import { renderDetail } from './detail';
-import type { BrowseResult, Criteria, EntryOut, Rule, SourceInfo, WsAppendMsg } from './types';
+import type { BrowseResult, Capabilities, CatalogLog, Criteria, EntryOut, ProviderInfo, Rule, SourceInfo, WsAppendMsg } from './types';
 import { LEVEL_COLORS, LEVEL_NAMES } from './types';
 import { escapeHtml, fmtBytes, fmtFullTime, fmtNum, throttle } from './util';
-import { icon, logoMark } from './icons';
+import { icon, type IconName, logoMark } from './icons';
 import { makeSplitter } from './splitter';
 
 interface UICriteria {
@@ -286,6 +286,14 @@ function criteriaParts(s: SourceState): Array<{ key: string; html: string }> {
   return parts;
 }
 
+const KIND_ICONS: Record<string, IconName> = {
+  file: 'file',
+  stream: 'stream',
+  merged: 'merge',
+  remote: 'globe',
+  provider: 'database',
+};
+
 function renderTree() {
   const tree = el('tree');
   if (state.sources.size === 0) {
@@ -295,8 +303,13 @@ function renderTree() {
   const parts: string[] = [];
   for (const s of state.sources.values()) {
     const isActive = s.info.id === state.activeId;
-    const kindIcon = icon(s.info.kind === 'stream' ? 'stream' : s.info.kind === 'merged' ? 'merge' : 'file', 14);
-    const live = s.info.kind === 'stream' ? ' <span class="live-badge">LIVE</span>' : '';
+    const kindIcon = icon(KIND_ICONS[s.info.kind] ?? 'file', 14);
+    const live =
+      s.info.kind === 'stream'
+        ? ' <span class="live-badge">LIVE</span>'
+        : s.info.connected === false
+          ? ` <span class="off-badge" title="${escapeHtml(s.info.lastError || s.info.state || 'disconnected')}">${escapeHtml(s.info.state === 'failed' ? 'FAILED' : 'OFFLINE')}</span>`
+          : '';
     parts.push(
       `<div class="tree-node${isActive ? ' active' : ''}" data-src="${s.info.id}" role="treeitem" tabindex="0" aria-selected="${isActive}">` +
         `${kindIcon}<span class="tree-name">${escapeHtml(s.info.name)}</span>${live}` +
@@ -877,7 +890,7 @@ async function selectSource(id: string) {
   updateStatus();
   refreshMinimap();
   // A ?pattern= query applies a custom parser to the first opened source.
-  if (pendingPattern && s.info.kind !== 'merged') {
+  if (pendingPattern && (s.info.kind === 'file' || s.info.kind === 'stream')) {
     const pattern = pendingPattern;
     pendingPattern = null;
     api
@@ -1030,9 +1043,11 @@ interface AnalysisFile {
   v: 1;
   rules: Rule[];
   sources: Array<{
-    kind: 'file' | 'stream';
+    kind: string; // 'file' | 'stream' | 'provider'
     path?: string;
     channel?: string;
+    provider?: string;
+    log?: string;
     criteria: Criteria;
     bookmarks: number[];
   }>;
@@ -1041,11 +1056,13 @@ interface AnalysisFile {
 async function saveAnalysis() {
   const doc: AnalysisFile = { v: 1, rules: state.rules, sources: [] };
   for (const s of state.sources.values()) {
-    if (s.info.kind === 'merged') continue;
+    if (s.info.kind !== 'file' && s.info.kind !== 'stream' && s.info.kind !== 'provider') continue;
     doc.sources.push({
       kind: s.info.kind,
       path: s.info.path,
       channel: s.info.kind === 'stream' ? s.info.name : undefined,
+      provider: s.info.provider?.id,
+      log: s.info.provider?.log,
       criteria: buildServerCriteria(s.criteria),
       bookmarks: [...s.bookmarks].sort((a, b) => a - b),
     });
@@ -1072,7 +1089,12 @@ async function loadAnalysis(file: File) {
   }
   for (const src of doc.sources ?? []) {
     try {
-      const info = src.kind === 'stream' ? await api.openStream(src.channel || 'demo') : await api.openLog(src.path!);
+      const info =
+        src.kind === 'stream'
+          ? await api.openStream(src.channel || 'demo')
+          : src.kind === 'provider'
+            ? await api.openProviderLog(src.provider!, src.log!)
+            : await api.openLog(src.path!);
       addSource(info);
       const s = state.sources.get(info.id)!;
       const c = src.criteria ?? {};
@@ -1133,11 +1155,119 @@ function onWsMessage(msg: WsAppendMsg) {
 
 // ---- File browser modal ----------------------------------------------------------------
 
-function openFileModal() {
+// ---- Capabilities ---------------------------------------------------------------
+
+let caps: Capabilities | null = null;
+const hasFiles = () => !caps?.modules || !!caps.modules.files;
+const hasCatalog = () => (caps?.modules?.providers?.providers.length ?? 0) > 0;
+
+// Hides features the server doesn't offer. Servers that predate `modules`
+// report nothing and keep every feature.
+function applyCapabilities() {
+  const m = caps?.modules;
+  if (!m) return;
+  const show = (id: string, on: boolean) => (el(id).hidden = !on);
+  show('tb-open', hasFiles() || hasCatalog());
+  show('menu-file', hasFiles() || hasCatalog());
+  show('welcome-open', hasFiles() || hasCatalog());
+  show('tb-stream', !!m.streams);
+  show('tb-merge', !!m.merge);
+  show('welcome-demo', !!m.streams?.demo);
+  el('fm-tab-files').hidden = !hasFiles();
+  el('fm-tab-catalog').hidden = !hasCatalog();
+  if (!hasFiles()) el('welcome-open').textContent = 'Open log';
+}
+
+// ---- Open dialog: Files and Catalog tabs ---------------------------------------------
+
+type OpenTab = 'files' | 'catalog';
+let openTab: OpenTab = 'files';
+let catalogCache: Array<{ provider: ProviderInfo; logs: CatalogLog[]; error?: string }> | null = null;
+
+function openFileModal(tab?: OpenTab) {
   fileModalReturnFocus = document.activeElement as HTMLElement | null;
   el('modal-backdrop').hidden = false;
-  void loadDir();
-  requestAnimationFrame(() => el<HTMLInputElement>('fm-path').focus());
+  showOpenTab(tab ?? (hasFiles() ? openTab : 'catalog'));
+}
+
+function showOpenTab(tab: OpenTab) {
+  openTab = tab;
+  const files = tab === 'files';
+  el('fm-tab-files').setAttribute('aria-selected', String(files));
+  el('fm-tab-catalog').setAttribute('aria-selected', String(!files));
+  el('fm-files-bar').hidden = !files;
+  el('fm-catalog-bar').hidden = files;
+  const showTabs = hasFiles() && hasCatalog();
+  (document.querySelector('.modal-tabs') as HTMLElement).hidden = !showTabs;
+  if (files) {
+    void loadDir();
+    requestAnimationFrame(() => el<HTMLInputElement>('fm-path').focus());
+  } else {
+    void loadCatalog();
+    requestAnimationFrame(() => el<HTMLInputElement>('fm-filter').focus());
+  }
+}
+
+async function loadCatalog(fresh = false) {
+  const list = el('fm-list');
+  if (!catalogCache || fresh) {
+    list.innerHTML = '<div class="tree-empty">Loading catalog…</div>';
+    const providers = caps?.modules?.providers?.providers ?? [];
+    catalogCache = await Promise.all(
+      providers.map(async (provider) => {
+        try {
+          return { provider, logs: (await api.providerLogs(provider.id)).logs };
+        } catch (err) {
+          return { provider, logs: [], error: (err as Error).message };
+        }
+      })
+    );
+  }
+  renderCatalog();
+}
+
+function renderCatalog() {
+  const list = el('fm-list');
+  const q = el<HTMLInputElement>('fm-filter').value.trim().toLowerCase();
+  const matches = (l: CatalogLog) =>
+    !q ||
+    [l.id, l.name, l.description ?? '', ...Object.entries(l.labels ?? {}).map(([k, v]) => `${k}=${v}`)]
+      .join(' ')
+      .toLowerCase()
+      .includes(q);
+  const parts: string[] = [];
+  for (const group of catalogCache ?? []) {
+    const logs = group.logs.filter(matches);
+    parts.push(`<div class="fm-group">${icon('database', 14)}<span>${escapeHtml(group.provider.name)}</span></div>`);
+    if (group.error) parts.push(`<div class="fm-error">${escapeHtml(group.error)}</div>`);
+    else if (!logs.length) parts.push('<div class="tree-empty">No matching logs.</div>');
+    for (const l of logs) {
+      const labels = Object.entries(l.labels ?? {})
+        .map(([k, v]) => `<span class="fm-label">${escapeHtml(k)}=${escapeHtml(v)}</span>`)
+        .join('');
+      parts.push(
+        `<button type="button" class="fm-item fm-log" data-provider="${escapeHtml(group.provider.id)}" data-log="${escapeHtml(l.id)}">` +
+          `${icon('file')}<span class="fm-log-text"><span class="fm-log-name">${escapeHtml(l.name)}</span>` +
+          (l.description ? `<span class="fm-log-desc">${escapeHtml(l.description)}</span>` : '') +
+          `</span>${labels}${l.open ? '<span class="sb-chip">open</span>' : ''}</button>`
+      );
+    }
+  }
+  list.innerHTML = parts.join('') || '<div class="tree-empty">No providers configured.</div>';
+  list.querySelectorAll<HTMLElement>('.fm-log').forEach((item) => {
+    item.onclick = async () => {
+      closeFileModal();
+      try {
+        const info = await api.openProviderLog(item.dataset.provider!, item.dataset.log!);
+        addSource(info);
+        await selectSource(info.id);
+        setFollow(true);
+        catalogCache = null;
+      } catch (err) {
+        alert('Failed to open: ' + (err as Error).message);
+      }
+    };
+  });
 }
 
 function closeFileModal() {
@@ -1235,12 +1365,26 @@ function init() {
   grid.setShowElapsed(true);
 
   const query = new URLSearchParams(location.search);
+  api.setBase(api.deriveBase());
   api.setViewKey(query.get('viewKey') || '');
   pendingPattern = query.get('pattern');
 
   ws = api.wsConnect(onWsMessage);
 
   el('fm-cancel').onclick = () => closeFileModal();
+  el('fm-tab-files').onclick = () => showOpenTab('files');
+  el('fm-tab-catalog').onclick = () => showOpenTab('catalog');
+  el('fm-filter').addEventListener('input', () => renderCatalog());
+  el('fm-refresh').onclick = () => void loadCatalog(true);
+  void api
+    .capabilities()
+    .then((c) => {
+      caps = c;
+      applyCapabilities();
+    })
+    .catch(() => {
+      /* older server or no access: keep every feature */
+    });
   el('fm-go').onclick = () => void loadDir(el<HTMLInputElement>('fm-path').value);
   el<HTMLInputElement>('fm-path').addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') void loadDir(el<HTMLInputElement>('fm-path').value);
@@ -1280,6 +1424,24 @@ function init() {
   });
 
   window.addEventListener('resize', () => refreshMinimap());
+
+  // Mirrors (remote, provider) report a connection state that changes
+  // without new entries; refresh it now and then.
+  setInterval(() => {
+    for (const s of state.sources.values()) {
+      if (s.info.connected === undefined) continue;
+      api
+        .getLog(s.info.id)
+        .then((info) => {
+          if (info.connected === s.info.connected && info.state === s.info.state) return;
+          s.info.connected = info.connected;
+          s.info.state = info.state;
+          s.info.lastError = info.lastError;
+          renderTree();
+        })
+        .catch(() => {});
+    }
+  }, 15_000);
 
   // Restore any sources the server already has open (page reload).
   void (async () => {

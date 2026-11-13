@@ -9,7 +9,7 @@
 // or over WebSocket: {"type":"publish","channel":"myapp","lines":[...]}
 //
 // Query params: channel (stream mode), path (server-side file mode),
-// server (API origin, defaults to the page origin), title, follow=0|1,
+// server (API origin, defaults to the directory serving embed.html), title, follow=0|1,
 // pattern (log4j-style conversion pattern applied to the stream after
 // subscribing), viewKey (read credential when the server sets VIEW_KEY),
 // allowOrigin (comma-separated host origins allowed to drive the widget
@@ -25,7 +25,7 @@ import { mountLogWidget } from './widget';
 
 const params = new URLSearchParams(location.search);
 const server = params.get('server') || '';
-if (server) api.setBase(server);
+api.setBase(server || api.deriveBase());
 const viewKey = params.get('viewKey');
 if (viewKey) api.setViewKey(viewKey);
 

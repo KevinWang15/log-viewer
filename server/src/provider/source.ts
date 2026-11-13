@@ -141,6 +141,8 @@ export class ProviderSource extends BaseSource {
       await src.close();
       throw new ProviderError(`cannot load ${log.id}: ${(err as Error).message}`, { status: statusOf(err, 502), cause: err });
     }
+    // Loaded and about to follow: report the follow mode right away.
+    src.stateValue = handle.watch ? 'live' : 'polling';
     src.loop = src.run();
     return src;
   }
