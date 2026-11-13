@@ -23,7 +23,12 @@
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { STREAM_LIMITS } from './config';
+import { DEFAULTS } from './config';
+
+export interface SpoolLimits {
+  maxEntries: number;
+  maxBytes: number;
+}
 import { EntryOut, StreamSource } from './sources';
 
 // The persisted entry shape. `raw` holds the first line only (see above).
@@ -76,7 +81,10 @@ function isEntry(v: unknown): v is SpooledEntry {
 export class StreamSpooler {
   private states = new Map<string, SpoolState>(); // channel -> file state
 
-  constructor(readonly dir: string) {
+  constructor(
+    readonly dir: string,
+    private readonly limits: SpoolLimits = { maxEntries: DEFAULTS.streamMaxEntries, maxBytes: DEFAULTS.streamMaxBytes }
+  ) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
@@ -109,7 +117,7 @@ export class StreamSpooler {
     st.chain = st.chain
       .then(() => fsp.appendFile(file, payload))
       .catch((err) => console.error(`spool append failed for stream ${channel}:`, err));
-    const max = STREAM_LIMITS.maxBytes;
+    const max = this.limits.maxBytes;
     if (max > 0 && st.size > max * 2 && !st.compacting && st.src) {
       st.compacting = true;
       st.chain = st.chain
@@ -204,7 +212,7 @@ export class StreamSpooler {
       if (malformed) console.error(`spool ${name}: skipped ${malformed} malformed line(s)`);
       // The entry cap is applied here; StreamSource.restore's retention pass
       // applies the byte cap.
-      const maxEntries = STREAM_LIMITS.maxEntries;
+      const maxEntries = this.limits.maxEntries;
       const tail = maxEntries > 0 && entries.length > maxEntries ? entries.slice(entries.length - maxEntries) : entries;
       this.states.set(channel, { chain: Promise.resolve(), size, compacting: false });
       out.push({ channel, entries: tail });

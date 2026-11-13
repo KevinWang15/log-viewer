@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import { WebSocketServer, WebSocket } from 'ws';
-import { STREAM_LIMITS, STREAM_TOKENS, SPOOL_DIR, VIEW_KEY, WATCH_GLOBS, WATCH_INTERVAL_MS } from './config';
+import { configFromEnv } from './config';
 import { BaseSource, Criteria, FileLogSource, isGzipFile, MergedSource, RemoteSource, StreamSource, textTester } from './sources';
 import { compilePattern, LEVEL_NAMES, LogFormat } from './parser';
 import { Store, RuleActions, RuleEntry, RuleLimitError, StoreCapacityError } from './store';
@@ -16,21 +16,31 @@ import { ensureSampleLogs } from './sample';
 import { startDemoStream } from './demo';
 import { makeFileOpener, startDirectoryWatch } from './watch';
 
-const PORT = Number(process.env.PORT || 5178);
-const ROOT = path.resolve(process.env.LOG_ROOT || os.homedir());
+const cfg = configFromEnv(process.env, os.homedir());
+const PORT = cfg.port;
+const ROOT = path.resolve(cfg.logRoot);
 const SAMPLES_DIR = path.resolve(process.cwd(), 'sample-logs');
 
-const STREAM_KEY = process.env.STREAM_KEY || '';
-const CORS_ORIGINS = (process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-const ENABLE_DEMO = !/^(?:0|false|no)$/i.test(process.env.ENABLE_DEMO || 'true');
-const ENABLE_SAMPLES = !/^(?:0|false|no)$/i.test(process.env.ENABLE_SAMPLES || 'true');
-const SERVICE_VERSION = process.env.APP_VERSION || '0.1.0';
+const STREAM_KEY = cfg.streamKey;
+const STREAM_TOKENS = cfg.streamTokens;
+const VIEW_KEY = cfg.viewKey;
+const CORS_ORIGINS = cfg.corsOrigins;
+const ENABLE_DEMO = cfg.enableDemo;
+const ENABLE_SAMPLES = cfg.enableSamples;
+const SERVICE_VERSION = cfg.appVersion || '0.1.0';
+const WATCH_GLOBS = cfg.watchGlobs;
+const WATCH_INTERVAL_MS = cfg.watchIntervalMs;
+const STREAM_LIMITS = Object.freeze({
+  maxEntries: cfg.streamMaxEntries,
+  maxBytes: cfg.streamMaxBytes,
+  maxSources: cfg.streamMaxSources,
+  idleTtlSeconds: cfg.streamIdleTtlSeconds,
+  maxPayloadBytes: cfg.maxPayloadBytes,
+});
+const streamLimits = { maxEntries: STREAM_LIMITS.maxEntries, maxBytes: STREAM_LIMITS.maxBytes };
 
-const spooler = SPOOL_DIR ? new StreamSpooler(path.resolve(SPOOL_DIR)) : null;
-const store = new Store(STREAM_LIMITS.maxSources, spooler ?? undefined);
+const spooler = cfg.spoolDir ? new StreamSpooler(path.resolve(cfg.spoolDir), streamLimits) : null;
+const store = new Store(STREAM_LIMITS.maxSources, spooler ?? undefined, streamLimits);
 let fileSeq = 1;
 let mergeSeq = 1;
 let remoteSeq = 1;
@@ -90,7 +100,7 @@ if (CORS_ORIGINS.length) {
       },
     })
   );
-} else if (process.env.NODE_ENV !== 'production') {
+} else if (!cfg.production) {
   app.use(cors());
 }
 app.use(express.json({ limit: STREAM_LIMITS.maxPayloadBytes }));
@@ -242,7 +252,7 @@ app.post(
       return;
     }
     const src = gzipped
-      ? await FileLogSource.openGz('f' + fileSeq++, filePath)
+      ? await FileLogSource.openGz('f' + fileSeq++, filePath, cfg.gzipMaxBytes)
       : await FileLogSource.open('f' + fileSeq++, filePath, start, end);
     store.addSource(src, pathKey);
     res.json(sourceInfo(src));
@@ -281,7 +291,7 @@ app.post(
       return;
     }
     const viewKey = typeof req.body?.viewKey === 'string' && req.body.viewKey ? req.body.viewKey : undefined;
-    const src = await RemoteSource.open('r' + remoteSeq++, url, source, viewKey);
+    const src = await RemoteSource.open('r' + remoteSeq++, url, source, viewKey, cfg.remoteMaxEntries);
     store.addSource(src);
     res.json(sourceInfo(src));
   })
@@ -1043,7 +1053,7 @@ const dirWatcher = WATCH_GLOBS.length
       root: ROOT,
       globs: WATCH_GLOBS,
       intervalMs: WATCH_INTERVAL_MS,
-      open: makeFileOpener(store, () => 'f' + fileSeq++, 'watch'),
+      open: makeFileOpener(store, () => 'f' + fileSeq++, 'watch', cfg.gzipMaxBytes),
       maxSources: STREAM_LIMITS.maxSources,
       sourceCount: () => store.sources.size,
     })

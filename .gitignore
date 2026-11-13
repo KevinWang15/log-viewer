@@ -6,3 +6,10 @@ chrome-headless-shell/
 /filtered.png
 /report.png
 /embed.png
+dist/
+__pycache__/
+*.pyc
+*.tgz
+server/ui/
+server/README.md
+server/LICENSE

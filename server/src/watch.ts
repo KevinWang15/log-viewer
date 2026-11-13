@@ -13,13 +13,13 @@ export type OpenFileFn = (filePath: string) => Promise<OpenResult>;
 // Opens a log file exactly like POST /api/logs/open: byPath dedup, gzip
 // detection by magic bytes (a matching .log.gz rotation opens decompressed),
 // and registration in the store. Open errors are reported, never thrown.
-export function makeFileOpener(store: Store, nextId: () => string, origin?: string): OpenFileFn {
+export function makeFileOpener(store: Store, nextId: () => string, origin?: string, gzipMaxBytes?: number): OpenFileFn {
   return async (filePath) => {
     if (store.sourceForPath(filePath)) return 'duplicate';
     let src: BaseSource;
     try {
       src = (await isGzipFile(filePath))
-        ? await FileLogSource.openGz(nextId(), filePath)
+        ? await FileLogSource.openGz(nextId(), filePath, gzipMaxBytes)
         : await FileLogSource.open(nextId(), filePath);
     } catch {
       return 'failed';

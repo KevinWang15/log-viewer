@@ -17,7 +17,7 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGunzip } from 'node:zlib';
 import { WebSocket } from 'ws';
-import { GZIP_LIMITS, REMOTE_MAX_ENTRIES, STREAM_LIMITS } from './config';
+import { DEFAULTS } from './config';
 import { detectFormat, levelFromString, LogFormat, matchLine, ParsedLine, parseTimestamp, PLAIN_FORMAT } from './parser';
 
 export interface EntryOut {
@@ -84,7 +84,7 @@ export async function isGzipFile(filePath: string): Promise<boolean> {
 // Streams the gzip member at `gzPath` into a fresh temp file and returns its
 // path. The temp file lives in its own mkdtemp directory so concurrent
 // decompressions never collide; the caller owns deleting that directory.
-export async function gunzipToTempFile(gzPath: string, maxBytes = GZIP_LIMITS.maxBytes): Promise<string> {
+export async function gunzipToTempFile(gzPath: string, maxBytes: number = DEFAULTS.gzipMaxBytes): Promise<string> {
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'log-viewer-'));
   const tmpPath = path.join(tmpDir, 'decompressed.log');
   let total = 0;
@@ -338,7 +338,7 @@ export class FileLogSource extends BaseSource {
 
   // Opens a gzipped log: decompresses to a temp file and indexes that copy.
   // Byte-range chunks don't apply (offsets would refer to compressed bytes).
-  static async openGz(id: string, gzPath: string, maxBytes = GZIP_LIMITS.maxBytes): Promise<FileLogSource> {
+  static async openGz(id: string, gzPath: string, maxBytes: number = DEFAULTS.gzipMaxBytes): Promise<FileLogSource> {
     const resolved = path.resolve(gzPath);
     const tmpPath = await gunzipToTempFile(resolved, maxBytes);
     const src = new FileLogSource(id, tmpPath, 0, undefined, resolved);
@@ -864,8 +864,8 @@ export class StreamSource extends BaseSource {
   constructor(
     readonly id: string,
     readonly name: string,
-    private readonly maxEntries = STREAM_LIMITS.maxEntries,
-    private readonly maxBytes = STREAM_LIMITS.maxBytes
+    private readonly maxEntries: number = DEFAULTS.streamMaxEntries,
+    private readonly maxBytes: number = DEFAULTS.streamMaxBytes
   ) {
     super();
   }
@@ -1260,7 +1260,7 @@ export class RemoteSource extends BaseSource {
     url: string,
     sourceId: string,
     viewKey?: string,
-    maxEntries = REMOTE_MAX_ENTRIES
+    maxEntries: number = DEFAULTS.remoteMaxEntries
   ): Promise<RemoteSource> {
     let base: URL;
     try {

@@ -1,5 +1,5 @@
 import { AppendEvent, BaseSource, Criteria, EntryOut, matcherFor, MergedSource, StreamSource } from './sources';
-import { STREAM_LIMITS } from './config';
+import { DEFAULTS } from './config';
 import { StreamSpooler } from './spool';
 
 export class StoreCapacityError extends Error {
@@ -119,7 +119,14 @@ export class Store {
   // two interleaved calls would otherwise fold the same tail rows twice.
   private reportQueues = new Map<string, Promise<unknown>>();
 
-  constructor(private readonly maxStreams = STREAM_LIMITS.maxSources, private readonly spooler?: StreamSpooler) {}
+  constructor(
+    private readonly maxStreams: number = DEFAULTS.streamMaxSources,
+    private readonly spooler?: StreamSpooler,
+    private readonly streamLimits: { maxEntries: number; maxBytes: number } = {
+      maxEntries: DEFAULTS.streamMaxEntries,
+      maxBytes: DEFAULTS.streamMaxBytes,
+    }
+  ) {}
 
   get streamCount(): number {
     let count = 0;
@@ -347,7 +354,7 @@ export class Store {
     const existing = this.getStream(channel);
     if (existing) return existing;
     if (this.maxStreams > 0 && this.streamCount >= this.maxStreams) throw new StoreCapacityError(this.maxStreams);
-    const src = new StreamSource('s:' + channel, channel);
+    const src = new StreamSource('s:' + channel, channel, this.streamLimits.maxEntries, this.streamLimits.maxBytes);
     this.spooler?.attach(src);
     this.addSource(src);
     return src;

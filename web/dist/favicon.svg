@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke-linecap="round" stroke-linejoin="round">
-  <style>.fg{stroke:#0f172a}@media (prefers-color-scheme:dark){.fg{stroke:#e2e8f0}}</style>
-  <polyline points="3.5,9.5 9,16 3.5,22.5" stroke="#4f46e5" stroke-width="3.6"/>
-  <line class="fg" x1="13" y1="9.5" x2="24" y2="9.5" stroke-width="3.4"/>
-  <line x1="13" y1="16" x2="22" y2="16" stroke="#f59e0b" stroke-width="3.4"/>
-  <line x1="13" y1="22.5" x2="19.5" y2="22.5" stroke="#4f46e5" stroke-width="3.4"/>
-  <circle cx="28.5" cy="9.5" r="2.4" fill="#ef4444"/>
-</svg>
